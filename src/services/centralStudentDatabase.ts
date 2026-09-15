@@ -599,17 +599,10 @@ export async function fetchStudentsFromCloud(): Promise<CentralStudent[]> {
 }
 
 /**
- * Loads all real students from the central database
+ * Loads all real students from the central database (READ-ONLY)
  */
 export function getAllStudents(): CentralStudent[] {
   try {
-    // Trigger background sync from server if it has been more than 10 seconds
-    const now = Date.now();
-    if (now - lastCloudSyncTime > 10000) {
-      lastCloudSyncTime = now;
-      fetchStudentsFromCloud().catch(() => {});
-    }
-
     const raw = localStorage.getItem(CENTRAL_STUDENTS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -618,32 +611,7 @@ export function getAllStudents(): CentralStudent[] {
         const realStudents = parsed.filter(
           (s: any) => !FORBIDDEN_DEMO_NAMES.includes((s.fullName || '').trim().toLowerCase())
         );
-
-        let needsSave = realStudents.length !== parsed.length;
-        const migrated = realStudents.map((s: any) => {
-          if (s.registrationStatus === 'pending_approval' || s.registrationStatus === 'pending') {
-            s.registrationStatus = 'approved';
-            s.registrationApprovedAt = s.registrationApprovedAt || s.registeredAt || new Date().toISOString();
-            needsSave = true;
-          }
-          if (s.studyIndexAccess === undefined) {
-            s.studyIndexAccess = false;
-            needsSave = true;
-          }
-          if (!s.studyIndexRows || s.studyIndexRows.length === 0) {
-            const syllabus = ICSI_OFFICIAL_SYLLABUS[s.assignedIndexId as keyof typeof ICSI_OFFICIAL_SYLLABUS];
-            if (syllabus) {
-              s.studyIndexRows = buildTrackerRowsFromSyllabusGroup(syllabus, s.assignedIndexId);
-              needsSave = true;
-            }
-          }
-          return s as CentralStudent;
-        });
-
-        if (needsSave) {
-          saveAllStudents(migrated);
-        }
-        return migrated;
+        return realStudents as CentralStudent[];
       }
     }
   } catch {
@@ -1652,13 +1620,6 @@ export async function fetchFreeSlotBookingsFromCloud(): Promise<FreeSlotBookingR
 export function getAllFreeSlotBookings(): FreeSlotBookingRecord[] {
   let bookings: FreeSlotBookingRecord[] = [];
   try {
-    // Background cloud sync
-    const now = Date.now();
-    if (now - lastFreeSlotCloudSyncTime > 10000) {
-      lastFreeSlotCloudSyncTime = now;
-      fetchFreeSlotBookingsFromCloud().catch(() => {});
-    }
-
     const raw = localStorage.getItem(FREE_SLOT_BOOKINGS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -1674,50 +1635,6 @@ export function getAllFreeSlotBookings(): FreeSlotBookingRecord[] {
     }
   } catch {
     bookings = [];
-  }
-
-  // Also check hk_local_enrollments to ensure any free session leads are captured, but NOT paid courses!
-  try {
-    const localEnrollmentsRaw = localStorage.getItem('hk_local_enrollments');
-    if (localEnrollmentsRaw) {
-      const parsedEnrollments = JSON.parse(localEnrollmentsRaw);
-      if (Array.isArray(parsedEnrollments)) {
-        parsedEnrollments.forEach((item: any, idx: number) => {
-          // Strictly free sessions ONLY
-          const isFreeSession =
-            item.status === 'counselling_booking' ||
-            item.status === 'free_session' ||
-            (item.program && item.program.toLowerCase().includes('counselling')) ||
-            (item.program && item.program.toLowerCase().includes('free'));
-
-          const isPayment = Boolean(item.utr_number) || Boolean(item.amount);
-
-          if (isFreeSession && !isPayment && (item.name || item.phone || item.email)) {
-            const alreadyExists = bookings.some(
-              (b) =>
-                (item.phone && b.phone === item.phone) ||
-                (item.email && b.email.toLowerCase() === item.email.toLowerCase())
-            );
-            if (!alreadyExists) {
-              const bookingId = `FREE-2026-${String(bookings.length + idx + 1).padStart(3, '0')}`;
-              bookings.push({
-                id: bookingId,
-                name: item.name || 'CS Aspirant',
-                email: item.email || `${(item.phone || '').replace(/\D/g, '')}@student.hkcodeofrankers.com`,
-                phone: item.phone || '',
-                program: item.program || '1-on-1 Free Strategy Call',
-                preferredSlot: item.attempt || item.notes || '1-on-1 Guidance Session',
-                notes: item.notes,
-                status: 'pending',
-                createdAt: item.created_at || item.local_saved_at || new Date().toISOString(),
-              });
-            }
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.warn('Harvesting free session bookings notice:', err);
   }
 
   return bookings;

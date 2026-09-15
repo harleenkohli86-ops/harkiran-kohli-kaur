@@ -58,6 +58,7 @@ import {
   deleteStudentMentorshipProfile,
   getOrCreateStudentMentorship,
   setStudentApprovalStatus,
+  setAdminViewingStudentId,
 } from '../services/mentorshipTrackerService';
 import {
   checkMasterAdminSlotStatus,
@@ -1285,6 +1286,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             students={centralStudents}
             onRefresh={loadCentralStudents}
             onOpenMentorshipChart={() => setAdminTab('mentorship_tracker')}
+            onOpenStudentPortal={(student) => {
+              getOrCreateStudentMentorship({
+                id: student.id,
+                fullName: student.fullName,
+                email: student.email,
+                phone: student.phone,
+                targetExam: student.targetExam,
+                isApproved: student.registrationStatus === 'approved',
+              });
+              const cleanEmail = (student.email || '').trim().toLowerCase();
+              setAdminViewingStudentId(cleanEmail || student.id);
+              onNavigate('portal');
+            }}
           />
         ) : adminTab === 'free_sessions' ? (
           <FreeSlotBookingsTab bookings={freeSlotBookings} onRefresh={loadFreeSlotBookings} />

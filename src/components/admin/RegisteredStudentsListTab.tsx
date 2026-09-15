@@ -37,12 +37,14 @@ interface RegisteredStudentsListTabProps {
   students: CentralStudent[];
   onRefresh: () => void;
   onOpenMentorshipChart?: (student: CentralStudent) => void;
+  onOpenStudentPortal?: (student: CentralStudent) => void;
 }
 
 export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps> = ({
   students,
   onRefresh,
   onOpenMentorshipChart,
+  onOpenStudentPortal,
 }) => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'unpaid' | 'rejected'>('all');
@@ -526,6 +528,17 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
+                          {onOpenStudentPortal && (
+                            <button
+                              onClick={() => onOpenStudentPortal(s)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-[11px] font-montserrat font-bold flex items-center gap-1 transition-all cursor-pointer"
+                              title="View Student Portal as Admin (Simulate / View without password)"
+                            >
+                              <ExternalLink className="w-3 h-3 text-blue-600" />
+                              <span>View Portal</span>
+                            </button>
+                          )}
+
                           {isPending && (
                             <>
                               <button

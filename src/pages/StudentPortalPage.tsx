@@ -37,7 +37,7 @@ import { useOrders } from '../context/OrderContext';
 import { useCart } from '../context/CartContext';
 import { PRODUCTS } from '../data/products';
 import { generateInvoicePDF } from '../services/invoiceService';
-import { fetchStudentEnrollments } from '../lib/supabase';
+import { fetchStudentEnrollments, getActiveAdminSession } from '../lib/supabase';
 import { MentorshipTrackerView } from '../components/MentorshipTrackerView';
 import {
   getOrCreateStudentMentorship,
@@ -83,12 +83,21 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
   const [isStudyIndexCheckoutOpen, setIsStudyIndexCheckoutOpen] = useState(false);
 
   // Admin impersonation handling — STRICT SECURITY: Only master admin can impersonate
-  const isAdminUser = user?.role === 'admin';
+  const isAdminUser = user?.role === 'admin' || Boolean(getActiveAdminSession());
   const [adminViewingKey, setAdminViewingKeyState] = useState<string | null>(() =>
     isAdminUser ? getAdminViewingStudentId() : null
   );
   const storedProfiles = loadAllStoredProfiles();
-  const impersonatedProfile = isAdminUser && adminViewingKey ? storedProfiles[adminViewingKey] : null;
+  const impersonatedProfile = (isAdminUser && adminViewingKey)
+    ? (storedProfiles[adminViewingKey] ||
+       Object.values(storedProfiles).find(
+         (p) =>
+           p.studentId === adminViewingKey ||
+           p.studentEmail?.toLowerCase() === adminViewingKey.toLowerCase() ||
+           (p.studentPhone && p.studentPhone.replace(/\D/g, '') === adminViewingKey.replace(/\D/g, ''))
+       ) ||
+       null)
+    : null;
   const isImpersonating = !!impersonatedProfile;
 
   // Clean up stale admin viewing key if student is not admin
