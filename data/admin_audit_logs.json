@@ -1,0 +1,208 @@
+[
+  {
+    "id": "AUDIT-1789423935514-27409d70",
+    "timestamp": "2026-09-14T22:12:15.514Z",
+    "action": "ADMIN_LOGIN_SUCCESS",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "direct": true
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789423931741-8728a092",
+    "timestamp": "2026-09-14T22:12:11.741Z",
+    "action": "ADMIN_LOGIN_SUCCESS",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "direct": true
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789422984567-ec535ac8",
+    "timestamp": "2026-09-14T21:56:24.567Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "hkcodeofrankers@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "hkcodeofrankers@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789422964659-bee04148",
+    "timestamp": "2026-09-14T21:56:04.659Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789422647592-a3c62214",
+    "timestamp": "2026-09-14T21:50:47.593Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "hkcodeofrankers@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "hkcodeofrankers@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789422109085-b117ad97",
+    "timestamp": "2026-09-14T21:41:49.085Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789421240151-f45a801b",
+    "timestamp": "2026-09-14T21:27:20.151Z",
+    "action": "ADMIN_LOGIN_FAILED",
+    "performedBy": "hkcodeofrankers@gmail.com",
+    "details": {
+      "reason": "Incorrect password"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789421238113-ae0bfc63",
+    "timestamp": "2026-09-14T21:27:18.113Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "hkcodeofrankers@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "hkcodeofrankers@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789420638031-5f2fd45a",
+    "timestamp": "2026-09-14T21:17:18.031Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "harleenkohli86@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789420629091-363d6da1",
+    "timestamp": "2026-09-14T21:17:09.091Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789420093429-5e0003bc",
+    "timestamp": "2026-09-14T21:08:13.429Z",
+    "action": "ADMIN_LOGIN_FAILED",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "reason": "Incorrect password"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419480971-c3a933f4",
+    "timestamp": "2026-09-14T20:58:00.971Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "harleenkohli86@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419460929-0462f9d6",
+    "timestamp": "2026-09-14T20:57:40.929Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419447610-6e244d92",
+    "timestamp": "2026-09-14T20:57:27.610Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419445474-b327252a",
+    "timestamp": "2026-09-14T20:57:25.474Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419412909-92b9d5f0",
+    "timestamp": "2026-09-14T20:56:52.909Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789419400084-244675ad",
+    "timestamp": "2026-09-14T20:56:40.084Z",
+    "action": "ADMIN_LOGIN_DENIED",
+    "performedBy": "hk.code.of.rankers@gmail.com",
+    "details": {
+      "reason": "Unrecognized admin identifier"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789418559286-586648b0",
+    "timestamp": "2026-09-14T20:42:39.286Z",
+    "action": "ADMIN_2FA_INVALID_ENTRY",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "attemptNumber": 1
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789418556716-10fee91a",
+    "timestamp": "2026-09-14T20:42:36.716Z",
+    "action": "ADMIN_2FA_DISPATCHED",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "channel": "email",
+      "destination": "harleenkohli86@gmail.com"
+    },
+    "ip": "127.0.0.1"
+  },
+  {
+    "id": "AUDIT-1789418552543-7e74fb24",
+    "timestamp": "2026-09-14T20:42:32.543Z",
+    "action": "ADMIN_LOGIN_FAILED",
+    "performedBy": "harleenkohli86@gmail.com",
+    "details": {
+      "reason": "Incorrect password"
+    },
+    "ip": "127.0.0.1"
+  }
+]
