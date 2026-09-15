@@ -112,8 +112,8 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
   const [activeStudent, setActiveStudent] = useState<StudentMentorshipProfile | null>(null);
   const [managingStudent, setManagingStudent] = useState<CentralStudent | null>(null);
   const [managerTab, setManagerTab] = useState<
-    'students_list' | 'registrations' | 'payments' | 'free_slot_bookings' | 'directory' | 'chart' | 'syllabus_index' | 'discount_codes'
-  >('students_list');
+    'chart' | 'directory' | 'syllabus_index' | 'discount_codes'
+  >('chart');
   const [searchQuery, setSearchQuery] = useState('');
   const [directoryType, setDirectoryType] = useState<'mentorship' | 'self_paced'>('mentorship');
   const [groupFilter, setGroupFilter] = useState<string>('all');
@@ -981,53 +981,15 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
       <div className="bg-white border-2 border-[#C8A45D]/40 p-2 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <button
-            onClick={() => setManagerTab('students_list')}
+            onClick={() => setManagerTab('chart')}
             className={`py-2 px-3 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              managerTab === 'students_list'
+              managerTab === 'chart'
                 ? 'gold-gradient-bg text-black shadow-sm font-bold'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <User className="w-3.5 h-3.5" />
-            <span>👥 Registered Students ({centralStudents.length})</span>
-            {pendingPaymentsCount > 0 && (
-              <span className="px-1.5 py-0.2 bg-red-600 text-white text-[10px] font-bold rounded-full animate-pulse">
-                {pendingPaymentsCount} Pending
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setManagerTab('payments')}
-            className={`py-2 px-3 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              managerTab === 'payments'
-                ? 'bg-[#1C1917] text-[#FFE3A0] border border-[#C8A45D] shadow-sm'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <CreditCard className="w-3.5 h-3.5 text-[#C8A45D]" />
-            <span>💳 Payment Approvals</span>
-            {pendingPaymentsCount > 0 && (
-              <span className="px-1.5 py-0.2 bg-emerald-500 text-white text-[10px] font-bold rounded-full animate-pulse">
-                {pendingPaymentsCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setManagerTab('registrations')}
-            className={`py-2 px-3 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              managerTab === 'registrations'
-                ? 'bg-[#1C1917] text-[#FFE3A0] border border-[#C8A45D] shadow-sm'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <span>📝 Registration Approvals</span>
-            {pendingRegistrationsCount > 0 && (
-              <span className="px-1.5 py-0.2 bg-amber-500 text-black text-[10px] font-bold rounded-full animate-pulse">
-                {pendingRegistrationsCount}
-              </span>
-            )}
+            <Bookmark className="w-3.5 h-3.5 text-[#8A651E]" />
+            <span>📊 Mentorship Chart</span>
           </button>
 
           <button
@@ -1040,18 +1002,6 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
           >
             <User className="w-3.5 h-3.5" />
             <span>👥 Student Directory ({centralStudents.length})</span>
-          </button>
-
-          <button
-            onClick={() => setManagerTab('chart')}
-            className={`py-2 px-3 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              managerTab === 'chart'
-                ? 'bg-[#1C1917] text-[#FFE3A0] border border-[#C8A45D] shadow-sm'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5 text-[#C8A45D]" />
-            <span>📊 Mentorship Chart</span>
           </button>
 
           <button
@@ -1098,44 +1048,7 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
         </div>
       </div>
 
-      {/* TAB 0: REGISTERED STUDENTS LIST */}
-      {managerTab === 'students_list' && (
-        <RegisteredStudentsListTab
-          students={centralStudents}
-          onRefresh={loadCentralData}
-          onOpenMentorshipChart={handleOpenMentorshipChartForCentralStudent}
-        />
-      )}
-
-      {/* TAB: FREE SESSION BOOKINGS */}
-      {managerTab === 'free_slot_bookings' && (
-        <FreeSlotBookingsTab bookings={freeSlotBookings} onRefresh={loadCentralData} />
-      )}
-
-      {/* TAB 1: REGISTRATION APPROVALS */}
-      {managerTab === 'registrations' && (
-        <RegistrationApprovalsTab
-          students={centralStudents}
-          approvingId={approvingId}
-          onApproveRegistration={handleApproveRegistration}
-          onRejectRegistration={handleRejectRegistration}
-          onRefresh={loadCentralData}
-        />
-      )}
-
-      {/* TAB 2: PAYMENT APPROVALS */}
-      {managerTab === 'payments' && (
-        <PaymentApprovalsTab
-          students={centralStudents}
-          approvingId={approvingId}
-          onApprovePayment={handleApprovePayment}
-          onRejectPayment={handleRejectPayment}
-          onOpenMentorshipChart={handleOpenMentorshipChartForCentralStudent}
-          onRefresh={loadCentralData}
-        />
-      )}
-
-      {/* TAB 3: SYLLABUS INDEXES */}
+      {/* TAB: SYLLABUS INDEXES */}
       {managerTab === 'syllabus_index' && (
         <SyllabusIndexTab />
       )}
@@ -1662,7 +1575,7 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
                           {/* Approval & Access Status */}
                           <td className="py-3.5 px-4">
                             {s.isApproved ? (
-                              <div className="space-y-1.5">
+                              <div className="space-y-1">
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 border border-emerald-300 text-emerald-900 text-[10px] font-bold">
                                   <Check className="w-3 h-3 text-emerald-600" />
                                   <span>Login Unlocked (Approved)</span>
@@ -1673,33 +1586,9 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
                                     UTR: {utrDisplay}
                                   </div>
                                 )}
-
-                                <div className="flex items-center gap-2 pt-0.5">
-                                  <button
-                                    onClick={() => handleApproveAndSendEmail(s)}
-                                    disabled={approvingId === s.studentId}
-                                    className="text-[10px] text-[#8A651E] hover:underline font-bold flex items-center gap-1 cursor-pointer"
-                                    title="Resend official registration approval email"
-                                  >
-                                    {approvingId === s.studentId ? (
-                                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                    ) : (
-                                      <Mail className="w-2.5 h-2.5" />
-                                    )}
-                                    <span>Resend Approval Email</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleRevokeApproval(s)}
-                                    className="text-[10px] text-gray-400 hover:text-rose-600 hover:underline cursor-pointer"
-                                    title="Temporarily revoke login access"
-                                  >
-                                    Revoke
-                                  </button>
-                                </div>
                               </div>
                             ) : (
-                              <div className="space-y-1.5">
+                              <div className="space-y-1">
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold">
                                   <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
                                   <span>Login Blocked (Pending)</span>
@@ -1710,20 +1599,6 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
                                     UTR: {utrDisplay}
                                   </div>
                                 )}
-
-                                <button
-                                  onClick={() => handleApproveAndSendEmail(s)}
-                                  disabled={approvingId === s.studentId}
-                                  className="w-full px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg shadow-sm flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                                  title="Approve student registration, enable portal login, and dispatch official approval email"
-                                >
-                                  {approvingId === s.studentId ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Approve & Unlock Login</span>
-                                </button>
                               </div>
                             )}
                           </td>

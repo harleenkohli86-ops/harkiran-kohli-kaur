@@ -43,6 +43,7 @@ import {
 import { PageId } from '../types';
 import { AdminMentorshipManager } from '../components/AdminMentorshipManager';
 import { FreeSlotBookingsTab } from '../components/admin/FreeSlotBookingsTab';
+import { RegisteredStudentsListTab } from '../components/admin/RegisteredStudentsListTab';
 import { PaymentApprovalsTab } from '../components/admin/PaymentApprovalsTab';
 import {
   getAllFreeSlotBookings,
@@ -149,8 +150,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'contacted' | 'confirmed' | 'completed'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
-  // Admin Active Tab: 'appointments' | 'upi_verification' | 'free_sessions' | 'mentorship_tracker'
-  const [adminTab, setAdminTab] = useState<'appointments' | 'upi_verification' | 'free_sessions' | 'mentorship_tracker'>('appointments');
+  // Admin Active Tab: 'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'
+  const [adminTab, setAdminTab] = useState<'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'>('mentorship_tracker');
   const [freeSlotBookings, setFreeSlotBookings] = useState<FreeSlotBookingRecord[]>(() => getAllFreeSlotBookings());
   const [centralStudents, setCentralStudents] = useState<CentralStudent[]>(() => getAllStudents());
 
@@ -1218,38 +1219,30 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        {/* Navigation Tabs Bar */}
+        {/* Navigation Tabs Bar: 4 Essential Sections */}
         <div className="bg-white border border-[#C8A45D]/30 p-2 rounded-2xl shadow-sm flex flex-wrap gap-2">
           <button
-            onClick={() => setAdminTab('appointments')}
+            onClick={() => setAdminTab('mentorship_tracker')}
             className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              adminTab === 'appointments'
+              adminTab === 'mentorship_tracker'
+                ? 'bg-gradient-to-r from-[#1C1917] to-[#2E2419] text-[#FFE3A0] border border-[#C8A45D] shadow-md'
+                : 'bg-[#FAF5E9] border border-[#C8A45D]/40 text-[#8A651E] hover:bg-[#F3EAD3]'
+            }`}
+          >
+            <Bookmark className="w-4 h-4 text-[#C8A45D]" />
+            <span>Student Mentorship Tracker</span>
+          </button>
+
+          <button
+            onClick={() => setAdminTab('registered_students')}
+            className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              adminTab === 'registered_students'
                 ? 'gold-gradient-bg text-black shadow-md'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            <span>Appointments & Inquiries ({totalCount})</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setAdminTab('upi_verification');
-              setTypeFilter('upi_pending');
-            }}
-            className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              adminTab === 'upi_verification'
-                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md'
-                : 'bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100'
-            }`}
-          >
-            <QrCode className="w-4 h-4 text-amber-700" />
-            <span>Direct UPI Approvals</span>
-            {totalUpiPendingCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-extrabold animate-pulse">
-                {totalUpiPendingCount} Pending
-              </span>
-            )}
+            <UserCheck className="w-4 h-4 text-[#8A651E]" />
+            <span>Registered Students Record ({centralStudents.length})</span>
           </button>
 
           <button
@@ -1261,7 +1254,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             }`}
           >
             <PhoneCall className="w-4 h-4 text-emerald-600" />
-            <span>Free Session Bookings ({freeSlotBookings.length})</span>
+            <span>Free Slot Bookings ({freeSlotBookings.length})</span>
             {freeSlotBookings.filter((b) => b.status === 'pending').length > 0 && (
               <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-extrabold animate-pulse">
                 {freeSlotBookings.filter((b) => b.status === 'pending').length} New
@@ -1270,18 +1263,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </button>
 
           <button
-            onClick={() => setAdminTab('mentorship_tracker')}
+            onClick={() => setAdminTab('all_inquiries')}
             className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              adminTab === 'mentorship_tracker'
-                ? 'bg-gradient-to-r from-[#1C1917] to-[#2E2419] text-[#FFE3A0] border border-[#C8A45D] shadow-md'
-                : 'bg-[#FAF5E9] border border-[#C8A45D]/40 text-[#8A651E] hover:bg-[#F3EAD3]'
+              adminTab === 'all_inquiries'
+                ? 'gold-gradient-bg text-black shadow-md'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <Bookmark className="w-4 h-4 text-[#C8A45D]" />
-            <span>Student Mentorship Tracker & Portals</span>
-            <span className="px-2 py-0.5 rounded-full bg-[#C8A45D] text-black text-[10px] font-black">
-              Master Access
-            </span>
+            <Calendar className="w-4 h-4" />
+            <span>All Inquiries ({totalCount})</span>
           </button>
         </div>
 
@@ -1290,50 +1280,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         {/* ========================================================================= */}
         {adminTab === 'mentorship_tracker' ? (
           <AdminMentorshipManager onNavigate={onNavigate} />
+        ) : adminTab === 'registered_students' ? (
+          <RegisteredStudentsListTab
+            students={centralStudents}
+            onRefresh={loadCentralStudents}
+            onOpenMentorshipChart={() => setAdminTab('mentorship_tracker')}
+          />
         ) : adminTab === 'free_sessions' ? (
           <FreeSlotBookingsTab bookings={freeSlotBookings} onRefresh={loadFreeSlotBookings} />
-        ) : adminTab === 'upi_verification' ? (
-          <div className="space-y-6">
-            {/* Direct UPI Payee Credentials Strip */}
-            <div className="bg-gradient-to-r from-[#171512] to-[#0F0F0F] text-white border-2 border-[#C8A45D]/40 p-4 sm:p-5 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-xl bg-[#C8A45D]/20 border border-[#C8A45D]/50 flex items-center justify-center text-[#FFE3A0] shrink-0">
-                  <QrCode className="w-6 h-6 text-[#C8A45D]" />
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase font-montserrat font-bold text-[#FFE3A0] tracking-wider flex items-center gap-1.5">
-                    <span>Verified Payee Bank Credentials (Check Bank Statement / SMS)</span>
-                    <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded text-[9px]">
-                      0% Convenience Fee
-                    </span>
-                  </div>
-                  <h3 className="font-cinzel text-sm sm:text-base font-bold text-white mt-0.5">
-                    {UPI_PAYEE_CONFIG.accountName}
-                  </h3>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-300">
-                    <span>Official UPI ID: <strong className="font-mono text-[#FFE3A0]">{UPI_PAYEE_CONFIG.upiId}</strong></span>
-                    <span>•</span>
-                    <span>Direct INR Account</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-black/50 p-3 rounded-xl border border-white/10 text-xs text-gray-300 max-w-md">
-                <p className="text-[11px] leading-relaxed">
-                  💡 <strong>Verification Workflow:</strong> Match the student's 12-digit UTR against your bank SMS/app. Click <strong>"Approve Payment"</strong> to verify enrollment, generate access credentials, and activate course access.
-                </p>
-              </div>
-            </div>
-
-            <PaymentApprovalsTab
-              students={centralStudents}
-              approvingId={approvingId}
-              onApprovePayment={handleApproveCentralPayment}
-              onRejectPayment={handleRejectCentralPayment}
-              onOpenMentorshipChart={() => setAdminTab('mentorship_tracker')}
-              onRefresh={loadCentralStudents}
-            />
-          </div>
         ) : (
           <div className="space-y-6">
             {/* Top Banner: Central Activity & Inquiries */}
