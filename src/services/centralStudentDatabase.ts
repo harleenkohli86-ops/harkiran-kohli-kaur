@@ -1022,6 +1022,53 @@ export function submitStudentCoursePayment(
 // 4. APPROVAL 2: PAYMENT APPROVAL (Admin)
 // ====================================================================
 
+/**
+ * Determines if a product or course identifier represents an HK StudyTrack Pro – CS Progress Index
+ */
+export function isStudyIndexProduct(courseId?: string, courseName?: string): boolean {
+  if (!courseId && !courseName) return false;
+  const cid = (courseId || '').toLowerCase();
+  const cname = (courseName || '').toLowerCase();
+  return (
+    cid.startsWith('hk-studytrack') ||
+    cid.includes('studytrack') ||
+    cid === 'cs-study-progress-index' ||
+    cid.includes('study-progress-index') ||
+    cname.includes('studytrack') ||
+    cname.includes('study progress index') ||
+    cname.includes('progress index')
+  );
+}
+
+/**
+ * Checks if a student record has an approved purchase of HK StudyTrack Pro – CS Progress Index.
+ * Mentorship purchase or registration alone does NOT qualify.
+ */
+export function hasEligibleStudyTrackPurchase(
+  student?: CentralStudent | null,
+  additionalOrders?: Array<{ status?: string; items?: Array<{ productId?: string; name?: string }> }>
+): boolean {
+  if (!student) return false;
+
+  // 1. Check student's purchased course
+  const course = student.purchasedCourse;
+  const isApproved = student.paymentStatus === 'approved' || course?.paymentStatus === 'approved';
+  if (isApproved && isStudyIndexProduct(course?.courseId, course?.courseName)) {
+    return true;
+  }
+
+  // 2. Check additional verified orders (if provided)
+  if (additionalOrders && additionalOrders.length > 0) {
+    const hasOrder = additionalOrders.some((o) =>
+      (o.status === 'COMPLETED' || o.status === 'approved') &&
+      o.items?.some((i) => isStudyIndexProduct(i.productId, i.name))
+    );
+    if (hasOrder) return true;
+  }
+
+  return false;
+}
+
 export function approveStudentPayment(
   studentId: string,
   adminName = 'Harkiran Kaur'
@@ -1037,26 +1084,21 @@ export function approveStudentPayment(
   student.paymentApprovedAt = new Date().toISOString();
 
   // Differentiate Mentorship Course vs. HK StudyTrack Pro – CS Progress Index
-  const isStudyIndexProduct =
-    student.purchasedCourse?.courseId?.includes('studytrack') ||
-    student.purchasedCourse?.courseId?.includes('study-progress-index') ||
-    student.purchasedCourse?.courseName?.toLowerCase().includes('studytrack') ||
-    student.purchasedCourse?.courseName?.toLowerCase().includes('study progress index') ||
-    student.purchasedCourse?.courseName?.toLowerCase().includes('progress index');
+  const isStudyIndex = isStudyIndexProduct(
+    student.purchasedCourse?.courseId,
+    student.purchasedCourse?.courseName
+  );
 
-  if (isStudyIndexProduct) {
+  if (isStudyIndex) {
     student.studyIndexAccess = true;
     if (!student.studyIndexRows || student.studyIndexRows.length === 0) {
       student.studyIndexRows = generateDefaultChapters(student.program, toMentorshipGroup(student.group));
     }
   } else {
-    // Mentorship Course payment: student receives full mentorship access AND automatically gets
-    // access to the HK StudyTrack Pro – CS Progress Index corresponding to their registered program/group only
+    // Mentorship Course payment: student receives full mentorship access ONLY.
+    // Mentorship students must NOT automatically receive Index edit access!
     student.mentorshipAccess = true;
-    student.studyIndexAccess = true;
-    if (!student.studyIndexRows || student.studyIndexRows.length === 0) {
-      student.studyIndexRows = generateDefaultChapters(student.program, toMentorshipGroup(student.group));
-    }
+    // studyIndexAccess remains unchanged (requires separate approved Index purchase or explicit Admin ON toggle)
   }
 
   if (student.purchasedCourse) {
@@ -1284,7 +1326,7 @@ export function addStudentManually(
     paymentStatus: isApproved ? 'approved' : cleanUtr ? 'pending_approval' : 'unpaid',
     paymentApprovedAt: isApproved ? new Date().toISOString() : undefined,
     mentorshipAccess: isApproved,
-    studyIndexAccess: isApproved,
+    studyIndexAccess: false, // Index edit access is separate from mentorship and requires explicit Index purchase or Admin ON toggle
     assignedIndexId,
     trackerRows,
     studyIndexRows,
@@ -1332,11 +1374,14 @@ export function addStudentManually(
 // ====================================================================
 
 export function updateStudentTrackerRows(
-  studentId: string,
+  studentIdOrEmail: string,
   newRows: TrackerRow[]
 ): boolean {
   const all = getAllStudents();
-  const idx = all.findIndex((s) => s.studentId === studentId);
+  const clean = (studentIdOrEmail || '').trim().toLowerCase();
+  const idx = all.findIndex(
+    (s) => s.studentId.toLowerCase() === clean || s.email.toLowerCase() === clean
+  );
   if (idx === -1) return false;
 
   all[idx].trackerRows = newRows;
@@ -1462,11 +1507,14 @@ export function updateCentralStudent(
 }
 
 export function updateStudentMonthlyCalls(
-  studentId: string,
+  studentIdOrEmail: string,
   calls: MonthMentorshipRecord[]
 ): boolean {
   const all = getAllStudents();
-  const idx = all.findIndex((s) => s.studentId === studentId);
+  const clean = (studentIdOrEmail || '').trim().toLowerCase();
+  const idx = all.findIndex(
+    (s) => s.studentId.toLowerCase() === clean || s.email.toLowerCase() === clean
+  );
   if (idx === -1) return false;
 
   all[idx].monthlyCalls = calls;

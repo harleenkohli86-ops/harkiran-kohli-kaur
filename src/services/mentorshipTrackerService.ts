@@ -340,9 +340,26 @@ export function getOrCreateStudentMentorship(student: {
   // Canonical key: Email is uniquely authoritative
   const key = cleanEmail || (isValidPhone ? `phone_${cleanPhone}` : (student.id || 'default_student'));
 
+  // Look up matching student in Central Student Database (Admin saved values are source of truth)
+  let centralMatch: any = null;
+  try {
+    const all = getAllStudents();
+    centralMatch = all.find(
+      (s) =>
+        (cleanEmail && s.email?.toLowerCase() === cleanEmail) ||
+        (student.id && s.studentId === student.id)
+    );
+  } catch (err) {
+    // fallback
+  }
+
   if (profiles[key]) {
-    if (profiles[key].syllabusVersion !== CURRENT_SYLLABUS_VERSION) {
-      profiles[key] = syncProfileToOfficialSyllabus(profiles[key], false);
+    // Admin changes in Central Database are the source of truth: never overwrite with defaults
+    if (centralMatch?.trackerRows && centralMatch.trackerRows.length > 0) {
+      profiles[key].trackerRows = centralMatch.trackerRows;
+    }
+    if (centralMatch?.monthlyCalls && centralMatch.monthlyCalls.length > 0) {
+      profiles[key].monthlyCalls = centralMatch.monthlyCalls;
     }
     if (student.isApproved !== undefined && profiles[key].isApproved !== student.isApproved) {
       profiles[key].isApproved = student.isApproved;
@@ -373,8 +390,11 @@ export function getOrCreateStudentMentorship(student: {
   }
 
   if (existingKey && profiles[existingKey]) {
-    if (profiles[existingKey].syllabusVersion !== CURRENT_SYLLABUS_VERSION) {
-      profiles[existingKey] = syncProfileToOfficialSyllabus(profiles[existingKey], false);
+    if (centralMatch?.trackerRows && centralMatch.trackerRows.length > 0) {
+      profiles[existingKey].trackerRows = centralMatch.trackerRows;
+    }
+    if (centralMatch?.monthlyCalls && centralMatch.monthlyCalls.length > 0) {
+      profiles[existingKey].monthlyCalls = centralMatch.monthlyCalls;
     }
     if (student.isApproved !== undefined && profiles[existingKey].isApproved !== student.isApproved) {
       profiles[existingKey].isApproved = student.isApproved;
@@ -387,8 +407,12 @@ export function getOrCreateStudentMentorship(student: {
 
   // Initialize new profile
   const { program, level, group, assignedIndexId } = resolveProgramAndGroup(student.targetExam || 'CS Executive Group 1');
-  const trackerRows = generateDefaultChapters(program, group);
-  const monthlyCalls = createDefault12MonthCalls();
+  const trackerRows = (centralMatch?.trackerRows && centralMatch.trackerRows.length > 0)
+    ? centralMatch.trackerRows
+    : generateDefaultChapters(program, group);
+  const monthlyCalls = (centralMatch?.monthlyCalls && centralMatch.monthlyCalls.length > 0)
+    ? centralMatch.monthlyCalls
+    : createDefault12MonthCalls();
 
   const newProfile: StudentMentorshipProfile = {
     studentId: student.id || `std_${Date.now()}`,
@@ -465,9 +489,10 @@ export async function saveStudentMentorshipProfile(profile: StudentMentorshipPro
 
   // Sync to Central Student Database
   try {
-    if (profile.studentId) {
-      updateStudentTrackerRows(profile.studentId, profile.trackerRows);
-      updateStudentMonthlyCalls(profile.studentId, profile.monthlyCalls);
+    const studentIdentifier = profile.studentId || cleanEmail;
+    if (studentIdentifier) {
+      updateStudentTrackerRows(studentIdentifier, profile.trackerRows);
+      updateStudentMonthlyCalls(studentIdentifier, profile.monthlyCalls);
     }
   } catch (err) {
     console.warn('Central DB sync error from mentorship profile:', err);
@@ -523,13 +548,7 @@ export function getAllStudentProfilesForAdmin(): StudentMentorshipProfile[] {
 
   const storedMap = loadAllStoredProfiles();
   const result: StudentMentorshipProfile[] = Object.values(storedMap)
-    .filter((p) => !isDeleted(p))
-    .map((p) => {
-      if (p.syllabusVersion !== CURRENT_SYLLABUS_VERSION) {
-        return syncProfileToOfficialSyllabus(p, false);
-      }
-      return p;
-    });
+    .filter((p) => !isDeleted(p));
 
   // Include all students from Central Student Database
   try {
@@ -548,11 +567,17 @@ export function getAllStudentProfilesForAdmin(): StudentMentorshipProfile[] {
       const mentorshipProfile = toMentorshipProfile(student);
 
       if (existingIdx !== -1) {
-        // Keep in sync with central status
+        // Keep in sync with central status (source of truth)
         result[existingIdx].isApproved = student.registrationStatus === 'approved';
         result[existingIdx].approvalStatus = student.registrationStatus === 'approved' ? 'approved' : student.registrationStatus === 'rejected' ? 'rejected' : 'pending';
         result[existingIdx].studentName = student.fullName;
         result[existingIdx].studentPhone = student.phone;
+        if (student.trackerRows && student.trackerRows.length > 0) {
+          result[existingIdx].trackerRows = student.trackerRows;
+        }
+        if (student.monthlyCalls && student.monthlyCalls.length > 0) {
+          result[existingIdx].monthlyCalls = student.monthlyCalls;
+        }
       } else {
         result.push(mentorshipProfile);
       }

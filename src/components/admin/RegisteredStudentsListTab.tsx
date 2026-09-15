@@ -5,6 +5,7 @@ import {
   approveStudentPayment,
   rejectStudentPayment,
   deleteStudentFromCentralDb,
+  toggleStudentStudyIndexAccess,
   ProgramName,
   ProgramLevel,
   ProgramGroup,
@@ -56,6 +57,13 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
   const [rejectingStudent, setRejectingStudent] = useState<CentralStudent | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [deletingStudent, setDeletingStudent] = useState<CentralStudent | null>(null);
+
+  // Direct toggle for StudyTrack Pro Index Access
+  const handleToggleIndexAccess = (student: CentralStudent) => {
+    const newStatus = !student.studyIndexAccess;
+    toggleStudentStudyIndexAccess(student.studentId, newStatus);
+    onRefresh();
+  };
 
   // Manual Add Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -362,13 +370,14 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
                 <th className="py-3.5 px-4">Course / Index</th>
                 <th className="py-3.5 px-4">Amount</th>
                 <th className="py-3.5 px-4">12-Digit UTR</th>
+                <th className="py-3.5 px-4 text-center">Index Access</th>
                 <th className="py-3.5 px-4 text-right">Approval Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-xs">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-14 px-4 text-center">
+                  <td colSpan={9} className="py-14 px-4 text-center">
                     <div className="max-w-md mx-auto space-y-3">
                       <div className="w-14 h-14 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-700">
                         <Users className="w-7 h-7" />
@@ -523,6 +532,35 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
                         ) : (
                           <span className="text-gray-400 font-sans text-xs">No UTR</span>
                         )}
+                      </td>
+
+                      {/* Index Access: ON / OFF (Admin Control) */}
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <div className="flex flex-col items-center gap-1">
+                          <button
+                            onClick={() => handleToggleIndexAccess(s)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer border shadow-xs ${
+                              s.studyIndexAccess
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                            }`}
+                            title={
+                              s.studyIndexAccess
+                                ? 'Index Access is ON. Click to turn OFF (Revokes student edit access to StudyTrack Pro Index)'
+                                : 'Index Access is OFF. Click to turn ON (Permits student edit access to StudyTrack Pro Index)'
+                            }
+                          >
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                s.studyIndexAccess ? 'bg-emerald-600' : 'bg-gray-400'
+                              }`}
+                            />
+                            <span>Index: {s.studyIndexAccess ? 'ON' : 'OFF'}</span>
+                          </button>
+                          <span className="text-[9px] text-gray-400 font-sans">
+                            {s.studyIndexAccess ? 'Edit Enabled' : 'View Only'}
+                          </span>
+                        </div>
                       </td>
 
                       {/* Actions */}

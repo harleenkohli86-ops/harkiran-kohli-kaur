@@ -416,15 +416,12 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
     persistChange({ ...profile, trackerRows: updatedRows });
   };
 
-  // Admin: Reset all chapters and tracking columns to "Pending"
+  // Admin: Change all chapters and tracking columns to "Pending"
   const handleResetAllToPending = () => {
     if (!isAdmin) return;
-    if (
-      !confirm(
-        'Set all chapters and revision columns to "Pending" for this student? You will be able to change them to Working or Completed whenever needed.'
-      )
-    )
+    if (!confirm('Are you sure you want to mark all chapters as Pending?')) {
       return;
+    }
 
     const updatedRows = profile.trackerRows.map((r) => ({
       ...r,
@@ -438,6 +435,29 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
       thirdRevision: 'Pending' as const,
       secondRevision: 'Pending' as const,
       firstRevision: 'Pending' as const,
+    }));
+    persistChange({ ...profile, trackerRows: updatedRows });
+  };
+
+  // Admin: Change all chapters and tracking columns to "Completed"
+  const handleMarkAllToCompleted = () => {
+    if (!isAdmin) return;
+    if (!confirm('Are you sure you want to mark all chapters as Completed?')) {
+      return;
+    }
+
+    const updatedRows = profile.trackerRows.map((r) => ({
+      ...r,
+      lectures: 'Completed' as const,
+      firstDetailedReading: 'Completed' as const,
+      chapterWiseTest: 'Completed' as const,
+      firstMockTest: 'Completed' as const,
+      secondMockTest: 'Completed' as const,
+      fifthRevision: 'Completed' as const,
+      fourthRevision: 'Completed' as const,
+      thirdRevision: 'Completed' as const,
+      secondRevision: 'Completed' as const,
+      firstRevision: 'Completed' as const,
     }));
     persistChange({ ...profile, trackerRows: updatedRows });
   };
@@ -1072,11 +1092,20 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
 
               <button
                 onClick={handleResetAllToPending}
-                className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-xl font-montserrat font-semibold text-[11px] flex items-center gap-1 transition-colors shadow-sm cursor-pointer"
-                title="Keep all index rows in Pending status (change whenever needed for students)"
+                className="px-2.5 py-1.5 bg-white hover:bg-amber-50 text-amber-900 border border-amber-300 rounded-xl font-montserrat font-semibold text-[11px] flex items-center gap-1 transition-colors shadow-xs cursor-pointer"
+                title="Admin: Mark all chapters and revision columns as Pending"
               >
                 <Clock className="w-3.5 h-3.5 text-amber-600" />
-                Reset All to Pending
+                <span>Change All to Pending</span>
+              </button>
+
+              <button
+                onClick={handleMarkAllToCompleted}
+                className="px-2.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl font-montserrat font-semibold text-[11px] flex items-center gap-1 transition-colors shadow-xs cursor-pointer"
+                title="Admin: Mark all chapters and revision columns as Completed"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Change All to Completed</span>
               </button>
 
               <button

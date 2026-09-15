@@ -50,6 +50,7 @@ import {
   getStudentByEmail,
   subscribeToDatabaseChanges,
   updateStudentStudyIndexRows,
+  hasEligibleStudyTrackPurchase,
   CentralStudent,
 } from '../services/centralStudentDatabase';
 import { getStudyTrackDetails } from '../services/studyTrackService';
@@ -374,11 +375,9 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
     )
   );
 
-  // Access status determination:
-  // 1. Approved / Active
-  const isStudyIndexActive = Boolean(
-    isImpersonating ||
-    centralStudent?.studyIndexAccess ||
+  // Eligible approved purchase of HK StudyTrack Pro – CS Progress Index
+  const hasApprovedStudyIndexOrder = Boolean(
+    hasEligibleStudyTrackPurchase(centralStudent, approvedOrders) ||
     enrolledProductIds.has(studyTrackDetails.productId) ||
     enrolledProductIds.has('cs-study-progress-index') ||
     approvedOrders.some((o) =>
@@ -386,12 +385,27 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
     )
   );
 
+  // Admin Index Access control:
+  // Admin can manually toggle Index Access ON or OFF for each student.
+  // If OFF, the student cannot edit the Index.
+  // If ON and student has eligible approved purchase (or Admin explicitly set ON), student can edit.
+  // Mentorship students without approved Index purchase remain in view-only mode for monitoring.
+  const isIndexTurnedOffByAdmin = centralStudent !== null && centralStudent?.studyIndexAccess === false;
+
+  const isStudyIndexActive = Boolean(
+    isImpersonating ||
+    (!isIndexTurnedOffByAdmin && centralStudent?.studyIndexAccess === true && (hasApprovedStudyIndexOrder || centralStudent?.studyIndexAccess))
+  );
+
   // 2. Verification Pending
   const isStudyIndexPending = Boolean(
     !isStudyIndexActive &&
+    !isIndexTurnedOffByAdmin &&
     (
-      centralStudent?.paymentStatus === 'pending_approval' ||
-      centralStudent?.purchasedCourse?.paymentStatus === 'pending_approval' ||
+      (centralStudent?.paymentStatus === 'pending_approval' &&
+        (centralStudent?.purchasedCourse?.courseId?.includes('studytrack') ||
+          centralStudent?.purchasedCourse?.courseId?.includes('study-progress-index') ||
+          centralStudent?.purchasedCourse?.courseName?.toLowerCase().includes('progress index'))) ||
       orders.some((o) =>
         o.status === 'pending_approval' &&
         o.items.some((i) =>
@@ -399,12 +413,6 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
           i.productId?.includes('studytrack') ||
           i.productId === 'cs-study-progress-index'
         )
-      ) ||
-      (
-        (centralStudent?.purchasedCourse?.courseId?.includes('studytrack') ||
-          centralStudent?.purchasedCourse?.courseId?.includes('study-progress-index') ||
-          centralStudent?.purchasedCourse?.courseName?.toLowerCase().includes('progress index')) &&
-        centralStudent?.paymentStatus === 'pending_approval'
       )
     )
   );
@@ -916,19 +924,33 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
               </div>
 
               {/* ACTION / NOTIFICATION BANNERS */}
-              {!isStudyIndexActive && !isStudyIndexPending && (
+              {isIndexTurnedOffByAdmin && (
+                <div className="bg-rose-50 border border-rose-300 rounded-2xl p-4 flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <div className="text-xs text-rose-950 space-y-0.5">
+                    <strong>Index Edit Access: OFF (Admin Controlled)</strong>
+                    <p className="text-rose-800">
+                      Your edit permission for this syllabus index is currently turned OFF by Admin. You are in read-only monitoring mode.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!isStudyIndexActive && !isStudyIndexPending && !isIndexTurnedOffByAdmin && (
                 <div className="bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border border-[#C8A45D]/50 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 bg-amber-500 text-black text-[10px] font-bold rounded-md uppercase">
-                        View Only Mode
+                        {hasApprovedMentorshipAccess ? 'Mentorship Monitoring Mode' : 'View Only Mode'}
                       </span>
                       <span className="font-montserrat font-bold text-xs text-gray-900">
-                        Unlock {studyTrackDetails.applicableIndex} Edit Access
+                        {hasApprovedMentorshipAccess ? 'Read-Only Syllabus Index' : `Unlock ${studyTrackDetails.applicableIndex} Edit Access`}
                       </span>
                     </div>
                     <p className="text-xs text-gray-600">
-                      You are currently in <strong>View Only</strong> mode. Purchase your assigned index to edit lecture completion, record test scores, and track your revision cycles.
+                      {hasApprovedMentorshipAccess
+                        ? 'As a 1-on-1 Mentorship student, you can view your official syllabus index for reference. Student-side editing is exclusive to HK StudyTrack Pro.'
+                        : 'You are currently in View Only mode. Purchase your assigned index to edit lecture completion, record test scores, and track your revision cycles.'}
                     </p>
                   </div>
 

@@ -40,6 +40,7 @@ import {
   approveStudentPayment,
   rejectStudentPayment,
   deleteStudentFromCentralDb,
+  toggleStudentStudyIndexAccess,
   subscribeToDatabaseChanges,
   CentralStudent,
   DiscountCodeRecord,
@@ -1601,6 +1602,54 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
                                 )}
                               </div>
                             )}
+
+                            {/* StudyTrack Pro Index Access Control (ON / OFF) */}
+                            {(() => {
+                              const matchedCentral = centralStudents.find(
+                                (cs) =>
+                                  cs.studentId === s.studentId ||
+                                  cs.email.toLowerCase() === (s.studentEmail || '').toLowerCase()
+                              );
+                              const hasIndexAccess = matchedCentral
+                                ? matchedCentral.studyIndexAccess
+                                : Boolean(s.studyIndexAccess);
+
+                              return (
+                                <div className="pt-2">
+                                  <button
+                                    onClick={() => {
+                                      const nextStatus = !hasIndexAccess;
+                                      toggleStudentStudyIndexAccess(s.studentId, nextStatus);
+                                      setStudents((prev) =>
+                                        prev.map((item) =>
+                                          item.studentId === s.studentId
+                                            ? { ...item, studyIndexAccess: nextStatus }
+                                            : item
+                                        )
+                                      );
+                                      loadCentralData();
+                                    }}
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                      hasIndexAccess
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                        : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                                    }`}
+                                    title={
+                                      hasIndexAccess
+                                        ? 'Index Access is ON. Click to turn OFF (Revokes student edit access)'
+                                        : 'Index Access is OFF. Click to turn ON (Grants student edit access)'
+                                    }
+                                  >
+                                    <span
+                                      className={`w-1.5 h-1.5 rounded-full ${
+                                        hasIndexAccess ? 'bg-emerald-600' : 'bg-gray-400'
+                                      }`}
+                                    />
+                                    <span>Index: {hasIndexAccess ? 'ON' : 'OFF'}</span>
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Master Admin Actions: WhatsApp, Email, Open Portal, Delete */}
