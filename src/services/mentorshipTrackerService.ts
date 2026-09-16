@@ -17,6 +17,7 @@ import {
   toMentorshipProfile,
   updateStudentTrackerRows,
   updateStudentMonthlyCalls,
+  updateStudentAccessDetails,
 } from './centralStudentDatabase';
 
 const STORAGE_KEY = 'hk_mentorship_student_profiles';
@@ -498,25 +499,26 @@ export async function saveStudentMentorshipProfile(profile: StudentMentorshipPro
     console.warn('Central DB sync error from mentorship profile:', err);
   }
 
-  // Sync to Supabase in background
+  // Sync to Supabase in background with real schema columns
   try {
+    const cleanEmail = (profile.studentEmail || '').trim().toLowerCase();
+    const cleanPhone = (profile.studentPhone || '').replace(/\D/g, '').slice(-10);
+    const trackerId = `TRK_${cleanEmail.replace(/[^a-z0-9]/g, '_') || cleanPhone || profile.studentId}`;
+    
     await supabase.from('mentorship_trackers').upsert([
       {
-        student_email: cleanEmail,
-        student_phone: cleanPhone,
-        student_name: profile.studentName,
-        program: profile.program,
-        level: profile.level,
-        group_name: profile.group,
-        assigned_index_id: profile.assignedIndexId,
-        tracker_data: profile.trackerRows,
-        monthly_calls_data: profile.monthlyCalls,
-        admin_remarks: profile.adminOverallRemarks,
-        updated_at: profile.updatedAt,
+        id: trackerId,
+        student_id: profile.studentId || null,
+        student_email: cleanEmail || null,
+        student_phone: cleanPhone || null,
+        student_name: profile.studentName || null,
+        tracker_rows: profile.trackerRows || [],
+        study_index_rows: profile.studyIndexRows || [],
+        last_updated: profile.updatedAt,
       },
     ]);
   } catch (err) {
-    // silently fallback to local storage
+    console.warn('Supabase tracker upsert fallback:', err);
   }
 
   return true;
@@ -565,23 +567,49 @@ export function getAllStudentProfilesForAdmin(): StudentMentorshipProfile[] {
       );
 
       const mentorshipProfile = toMentorshipProfile(student);
+      const isApproved = Boolean(student.mentorshipAccess || student.paymentStatus === 'approved');
 
       if (existingIdx !== -1) {
         // Keep in sync with central status (source of truth)
-        result[existingIdx].isApproved = student.registrationStatus === 'approved';
-        result[existingIdx].approvalStatus = student.registrationStatus === 'approved' ? 'approved' : student.registrationStatus === 'rejected' ? 'rejected' : 'pending';
+        result[existingIdx].isApproved = isApproved;
+        result[existingIdx].approvalStatus = isApproved
+          ? 'approved'
+          : student.paymentStatus === 'rejected'
+          ? 'rejected'
+          : 'pending';
         result[existingIdx].studentName = student.fullName;
         result[existingIdx].studentPhone = student.phone;
+        result[existingIdx].studentEmail = student.email;
+        result[existingIdx].program = student.program as any;
+        result[existingIdx].level = student.level as any;
+        result[existingIdx].group = (student.group === 'Both Groups' ? 'Both' : student.group) as any;
+        result[existingIdx].assignedIndexId = student.assignedIndexId;
+        result[existingIdx].targetAttempt = student.targetExam;
+        result[existingIdx].studyIndexAccess = student.studyIndexAccess;
         if (student.trackerRows && student.trackerRows.length > 0) {
           result[existingIdx].trackerRows = student.trackerRows;
+        }
+        if (student.studyIndexRows && student.studyIndexRows.length > 0) {
+          result[existingIdx].studyIndexRows = student.studyIndexRows;
         }
         if (student.monthlyCalls && student.monthlyCalls.length > 0) {
           result[existingIdx].monthlyCalls = student.monthlyCalls;
         }
+
+        const storedKey = cleanEmail || (cleanPhone ? `phone_${cleanPhone}` : student.studentId);
+        if (storedMap[storedKey]) {
+          storedMap[storedKey] = {
+            ...storedMap[storedKey],
+            ...result[existingIdx],
+          };
+        }
       } else {
         result.push(mentorshipProfile);
+        const storedKey = cleanEmail || (cleanPhone ? `phone_${cleanPhone}` : student.studentId);
+        storedMap[storedKey] = mentorshipProfile;
       }
     });
+    saveAllStoredProfiles(storedMap);
   } catch (err) {
     console.warn('Could not merge central student profiles:', err);
   }
@@ -805,6 +833,22 @@ export function reassignStudentGroup(
   };
 
   saveStudentMentorshipProfile(updatedProfile);
+
+  // Sync with Central Student Database so Program/Group changes are reflected system-wide
+  try {
+    const studentIdentifier = profile.studentId || (profile.studentEmail || '').trim().toLowerCase();
+    if (studentIdentifier) {
+      updateStudentAccessDetails(profile.studentId, {
+        program: newProgram as any,
+        level: newLevel as any,
+        group: newGroup === 'Both' ? 'Both Groups' : (newGroup as any),
+        targetExam: `${newProgram} — ${newGroup}`,
+      });
+    }
+  } catch (err) {
+    console.warn('Central DB sync error from reassignStudentGroup:', err);
+  }
+
   return updatedProfile;
 }
 

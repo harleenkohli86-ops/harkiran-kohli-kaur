@@ -92,8 +92,10 @@ import {
   CreditCard,
   PhoneCall,
   SlidersHorizontal,
+  FileDown,
 } from 'lucide-react';
 import { PageId } from '../types';
+import { downloadMentorshipReportPDF } from '../services/mentorshipReportService';
 
 interface AdminMentorshipManagerProps {
   onNavigate: (page: PageId) => void;
@@ -113,8 +115,9 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
   const [activeStudent, setActiveStudent] = useState<StudentMentorshipProfile | null>(null);
   const [managingStudent, setManagingStudent] = useState<CentralStudent | null>(null);
   const [managerTab, setManagerTab] = useState<
-    'chart' | 'directory' | 'syllabus_index' | 'discount_codes'
+    'chart' | 'directory' | 'payment_approvals' | 'syllabus_index' | 'discount_codes'
   >('chart');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [directoryType, setDirectoryType] = useState<'mentorship' | 'self_paced'>('mentorship');
   const [groupFilter, setGroupFilter] = useState<string>('all');
@@ -145,6 +148,31 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
     if (managingStudent) {
       const refreshed = cs.find((s) => s.studentId === managingStudent.studentId);
       if (refreshed) setManagingStudent(refreshed);
+    }
+  };
+
+  const handleDownloadMentorshipReport = async () => {
+    setIsGeneratingReport(true);
+    try {
+      const res = await downloadMentorshipReportPDF();
+      if (res.success) {
+        setActionToast({
+          message: res.message,
+          type: 'success',
+        });
+      } else {
+        setActionToast({
+          message: res.message || 'Could not generate report.',
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionToast({
+        message: err?.message || 'Failed to generate PDF dossier.',
+        type: 'error',
+      });
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -655,6 +683,8 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
       if (activeStudent && activeStudent.studentId === updated.studentId) {
         setActiveStudent(updated);
       }
+      loadCentralData();
+      loadStudents();
     }
   };
 
@@ -1028,9 +1058,35 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
             <Tag className="w-3.5 h-3.5 text-[#C8A45D]" />
             <span>🏷️ Promo Codes</span>
           </button>
+
+          <button
+            onClick={() => setManagerTab('payment_approvals')}
+            className={`py-2 px-3 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              managerTab === 'payment_approvals'
+                ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-sm font-bold'
+                : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+            }`}
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>💳 Direct UPI Approvals</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownloadMentorshipReport}
+            disabled={isGeneratingReport}
+            className="px-3.5 py-2 bg-gradient-to-r from-[#1C1917] to-[#2E2419] hover:brightness-110 text-[#FFE3A0] border border-[#C8A45D]/60 rounded-xl text-xs font-montserrat font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            title="Download official multi-student Mentorship Report PDF dossier directly from Supabase"
+          >
+            {isGeneratingReport ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C8A45D]" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5 text-[#C8A45D]" />
+            )}
+            <span>📄 Mentorship Report PDF</span>
+          </button>
+
           <button
             onClick={() => {
               const target = activeStudent || students[0];
@@ -1048,6 +1104,15 @@ export const AdminMentorshipManager: React.FC<AdminMentorshipManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* TAB: PAYMENT APPROVALS */}
+      {managerTab === 'payment_approvals' && (
+        <PaymentApprovalsTab
+          students={centralStudents}
+          onRefresh={loadCentralData}
+          onOpenMentorshipChart={() => setManagerTab('chart')}
+        />
+      )}
 
       {/* TAB: SYLLABUS INDEXES */}
       {managerTab === 'syllabus_index' && (

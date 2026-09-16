@@ -35,6 +35,7 @@ import {
   sendSlotBookingConfirmationEmail,
   sendFreeSlotBookingConfirmationEmail,
 } from './emailService';
+import { saveEnrollment, updateAppointmentStatus, supabase } from '../lib/supabase';
 
 // Storage Keys
 const CENTRAL_STUDENTS_KEY = 'hk_central_students_db_v2';
@@ -100,6 +101,9 @@ export interface PurchasedCourseInfo {
   transactionRef?: string; // 12-digit UPI UTR
   utrNumber?: string;
   paymentDate: string;
+  paymentApprovedAt?: string;
+  rejectionReason?: string;
+  rejectedAt?: string;
   paymentProofNotes?: string;
   reviewedAt?: string;
   reviewedBy?: string;
@@ -245,7 +249,7 @@ export function toMentorshipGroup(group: ProgramGroup): MentorshipGroup {
 /**
  * Dispatches a cross-component event so all screens refresh instantly
  */
-function notifyDbChange() {
+export function notifyDbChange() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(SYNC_EVENT_NAME));
   }
@@ -583,13 +587,25 @@ export async function fetchStudentsFromCloud(): Promise<CentralStudent[]> {
     const res = await fetch('/api/students');
     if (res.ok) {
       const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        const clean = json.data.filter(
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        const clean: CentralStudent[] = json.data.filter(
           (s: any) => !FORBIDDEN_DEMO_NAMES.includes((s.fullName || '').trim().toLowerCase())
         );
-        localStorage.setItem(CENTRAL_STUDENTS_KEY, JSON.stringify(clean));
+        const localStudents = getAllStudents();
+        const merged = [...clean];
+        localStudents.forEach((loc) => {
+          const exists = merged.some(
+            (c) =>
+              c.studentId === loc.studentId ||
+              (c.email && loc.email && c.email.toLowerCase() === loc.email.toLowerCase())
+          );
+          if (!exists) {
+            merged.push(loc);
+          }
+        });
+        localStorage.setItem(CENTRAL_STUDENTS_KEY, JSON.stringify(merged));
         notifyDbChange();
-        return clean;
+        return merged;
       }
     }
   } catch (err) {
@@ -656,6 +672,7 @@ export function getStudentByEmail(email: string): CentralStudent | null {
  * Converts a CentralStudent into a StudentMentorshipProfile for compatibility with MentorshipTrackerView
  */
 export function toMentorshipProfile(student: CentralStudent): StudentMentorshipProfile {
+  const isApproved = Boolean(student.mentorshipAccess || student.paymentStatus === 'approved');
   return {
     studentId: student.studentId,
     studentName: student.fullName,
@@ -663,15 +680,21 @@ export function toMentorshipProfile(student: CentralStudent): StudentMentorshipP
     studentPhone: student.phone,
     program: student.program,
     level: student.level,
-    group: student.group as any,
+    group: toMentorshipGroup(student.group),
     assignedIndexId: student.assignedIndexId,
     targetAttempt: student.targetExam,
     syllabusVersion: CURRENT_SYLLABUS_VERSION,
-    trackerRows: student.trackerRows,
-    monthlyCalls: student.monthlyCalls,
-    isApproved: true,
-    approvalStatus: 'approved',
-    approvedAt: student.registrationApprovedAt || student.registeredAt,
+    trackerRows: student.trackerRows || [],
+    studyIndexRows: student.studyIndexRows || [],
+    monthlyCalls: student.monthlyCalls || [],
+    studyIndexAccess: student.studyIndexAccess,
+    isApproved,
+    approvalStatus: isApproved
+      ? 'approved'
+      : student.paymentStatus === 'rejected'
+      ? 'rejected'
+      : 'pending',
+    approvedAt: student.paymentApprovedAt || student.registrationApprovedAt || student.registeredAt,
     updatedAt: student.updatedAt,
   };
 }
@@ -1000,6 +1023,23 @@ export function submitStudentCoursePayment(
 
   saveAllStudents(all);
 
+  // Persist directly to Supabase public.enrollments table (single source of truth)
+  saveEnrollment({
+    name: student.fullName || input.fullName,
+    email: student.email || input.email,
+    phone: student.phone || input.phone,
+    program: input.courseName,
+    attempt: student.targetExam,
+    productId: input.courseId,
+    status: 'pending',
+    utrNumber: finalUtr,
+    amount: input.finalAmount,
+    studentId: student.studentId,
+    level: student.level,
+    group: student.group,
+    notes: `[UTR: ${finalUtr}] [Amount: ₹${input.finalAmount}] [StudentID: ${student.studentId}] [Level: ${student.level}] [Group: ${student.group}] [OrderId: ${orderId}] Direct UPI payment pending verification. ${input.paymentProofNotes || ''}`,
+  }).catch((err) => console.warn('Supabase saveEnrollment notice:', err));
+
   // Sync to Cloud API
   fetch('/api/students/payment', {
     method: 'POST',
@@ -1211,6 +1251,17 @@ export function approveStudentPayment(
     body: JSON.stringify({ studentId, adminName }),
   }).catch((err) => console.warn('Cloud API approve-payment sync warning:', err));
 
+  // Ensure Supabase public.enrollments table is updated to status = 'approved'
+  const finalUtrToMatch = student.purchasedCourse?.utrNumber || student.purchasedCourse?.transactionRef;
+  updateAppointmentStatus(
+    { phone: student.phone },
+    'approved',
+    {
+      notes: `[APPROVED by ${adminName} on ${new Date().toISOString()}]`,
+      utr_number: finalUtrToMatch,
+    }
+  ).catch((err) => console.warn('Supabase updateAppointmentStatus on approval notice:', err));
+
   return {
     success: true,
     message: `Payment for ${student.fullName} has been approved! ${isStudyIndexProduct ? 'CS Study Progress Index (Student Editable)' : 'Mentorship Course (View-Only)'} access is now active.`,
@@ -1250,6 +1301,17 @@ export function rejectStudentPayment(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ studentId, reason, adminName }),
   }).catch((err) => console.warn('Cloud API reject-payment sync warning:', err));
+
+  // Ensure Supabase public.enrollments table is updated to status = 'rejected'
+  const finalUtrReject = student.purchasedCourse?.utrNumber || student.purchasedCourse?.transactionRef;
+  updateAppointmentStatus(
+    { phone: student.phone },
+    'rejected',
+    {
+      notes: `[REJECTED by ${adminName}: ${reason} on ${new Date().toISOString()}]`,
+      utr_number: finalUtrReject,
+    }
+  ).catch((err) => console.warn('Supabase updateAppointmentStatus on rejection notice:', err));
 
   return {
     success: true,
@@ -1557,6 +1619,9 @@ export function updateStudentAccessDetails(
   if (idx === -1) return false;
 
   const s = all[idx];
+  const oldProgram = s.program;
+  const oldGroup = s.group;
+
   if (updates.fullName) s.fullName = updates.fullName.trim();
   if (updates.email) s.email = updates.email.trim().toLowerCase();
   if (updates.phone) s.phone = updates.phone.trim();
@@ -1564,12 +1629,24 @@ export function updateStudentAccessDetails(
   if (updates.level) s.level = updates.level;
   if (updates.group) s.group = updates.group;
   if (updates.targetExam) s.targetExam = updates.targetExam.trim();
+
+  const programOrGroupChanged =
+    (updates.program && updates.program !== oldProgram) ||
+    (updates.group && updates.group !== oldGroup);
+
   if (updates.program || updates.group) {
     s.assignedIndexId = getAssignedIndexId(s.program, s.group);
     if (!updates.targetExam) {
       s.targetExam = `${s.program} — ${s.group}`;
     }
   }
+
+  // If group or program changed, re-generate syllabus rows for the new group
+  if (programOrGroupChanged) {
+    s.trackerRows = generateDefaultChapters(s.program, toMentorshipGroup(s.group));
+    s.studyIndexRows = generateDefaultChapters(s.program, toMentorshipGroup(s.group));
+  }
+
   if (updates.mentorshipAccess !== undefined) s.mentorshipAccess = updates.mentorshipAccess;
   if (updates.studyIndexAccess !== undefined) s.studyIndexAccess = updates.studyIndexAccess;
   if (updates.paymentStatus !== undefined) s.paymentStatus = updates.paymentStatus;
@@ -1578,6 +1655,140 @@ export function updateStudentAccessDetails(
   s.updatedAt = new Date().toISOString();
 
   saveAllStudents(all);
+
+  // 1. Synchronize immediately to Mentorship Profiles (hk_student_mentorship_profiles)
+  try {
+    const rawStored = localStorage.getItem('hk_student_mentorship_profiles');
+    if (rawStored) {
+      const storedMap = JSON.parse(rawStored);
+      const cleanEmail = s.email.toLowerCase();
+      const cleanPhone = s.phone.replace(/\D/g, '');
+      let profileModified = false;
+
+      for (const k of Object.keys(storedMap)) {
+        const p = storedMap[k];
+        const pEmail = (p.studentEmail || '').trim().toLowerCase();
+        const pPhone = (p.studentPhone || '').replace(/\D/g, '');
+        const pId = p.studentId || '';
+
+        if (
+          pId === s.studentId ||
+          (cleanEmail && pEmail === cleanEmail) ||
+          (cleanPhone && pPhone === cleanPhone)
+        ) {
+          storedMap[k] = {
+            ...p,
+            studentName: s.fullName,
+            studentEmail: s.email,
+            studentPhone: s.phone,
+            program: s.program as any,
+            level: s.level as any,
+            group: toMentorshipGroup(s.group),
+            assignedIndexId: s.assignedIndexId,
+            targetAttempt: s.targetExam,
+            trackerRows: s.trackerRows,
+            studyIndexRows: s.studyIndexRows,
+            studyIndexAccess: s.studyIndexAccess,
+            isApproved: Boolean(s.mentorshipAccess || s.paymentStatus === 'approved'),
+            approvalStatus: (s.mentorshipAccess || s.paymentStatus === 'approved')
+              ? 'approved'
+              : s.paymentStatus === 'rejected'
+              ? 'rejected'
+              : 'pending',
+            updatedAt: s.updatedAt,
+          };
+          profileModified = true;
+        }
+      }
+      if (profileModified) {
+        localStorage.setItem('hk_student_mentorship_profiles', JSON.stringify(storedMap));
+      }
+    }
+  } catch (err) {
+    console.warn('Could not sync to hk_student_mentorship_profiles:', err);
+  }
+
+  // 2. Synchronize to registered users
+  try {
+    const rawUsers = localStorage.getItem('hk_rankers_registered_users');
+    if (rawUsers) {
+      const users = JSON.parse(rawUsers);
+      const cleanEmail = s.email.toLowerCase();
+      let mod = false;
+      users.forEach((u: any) => {
+        if (u.id === s.studentId || (cleanEmail && u.email?.toLowerCase() === cleanEmail)) {
+          u.program = s.program;
+          u.group = s.group;
+          u.level = s.level;
+          u.targetExam = s.targetExam;
+          u.mentorshipAccess = s.mentorshipAccess;
+          u.studyIndexAccess = s.studyIndexAccess;
+          u.paymentStatus = s.paymentStatus;
+          u.updatedAt = s.updatedAt;
+          mod = true;
+        }
+      });
+      if (mod) {
+        localStorage.setItem('hk_rankers_registered_users', JSON.stringify(users));
+      }
+    }
+  } catch (err) {
+    console.warn('Could not sync to hk_rankers_registered_users:', err);
+  }
+
+  // 3. Synchronize to Supabase mentorship_trackers table
+  try {
+    const cleanEmail = s.email.trim().toLowerCase();
+    const cleanPhone = s.phone.replace(/\D/g, '').slice(-10);
+    const trackerId = `TRK_${cleanEmail.replace(/[^a-z0-9]/g, '_') || cleanPhone || s.studentId}`;
+    supabase
+      .from('mentorship_trackers')
+      .upsert([
+        {
+          id: trackerId,
+          student_id: s.studentId,
+          student_email: cleanEmail || null,
+          student_phone: cleanPhone || null,
+          student_name: s.fullName,
+          tracker_rows: s.trackerRows || [],
+          study_index_rows: s.studyIndexRows || [],
+          last_updated: s.updatedAt,
+        },
+      ])
+      .then(({ error }) => {
+        if (error) console.warn('Supabase tracker update error:', error);
+      });
+  } catch (err) {
+    console.warn('Supabase tracker exception:', err);
+  }
+
+  // 4. Synchronize to server API /api/students/update-details
+  fetch('/api/students/update-details', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      studentId: s.studentId,
+      email: s.email,
+      updates: {
+        fullName: s.fullName,
+        email: s.email,
+        phone: s.phone,
+        program: s.program,
+        level: s.level,
+        group: s.group,
+        targetExam: s.targetExam,
+        assignedIndexId: s.assignedIndexId,
+        mentorshipAccess: s.mentorshipAccess,
+        studyIndexAccess: s.studyIndexAccess,
+        paymentStatus: s.paymentStatus,
+        registrationStatus: s.registrationStatus,
+        trackerRows: s.trackerRows,
+        studyIndexRows: s.studyIndexRows,
+        adminNotes: s.adminNotes,
+      },
+    }),
+  }).catch((err) => console.warn('Cloud update details error:', err));
+
   return true;
 }
 

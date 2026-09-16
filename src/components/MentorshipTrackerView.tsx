@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StudentMentorshipProfile,
   TrackerRow,
@@ -82,6 +82,12 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
   const canEdit = isAdmin || (Boolean(isStudyProgressIndex) && hasPurchasedIndex);
   const [activeSubjectFilter, setActiveSubjectFilter] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState('');
+
+  // Synchronize internal state when prop changes
+  useEffect(() => {
+    setProfile(initialProfile);
+    setSelectedPresetGroup(initialProfile.assignedIndexId || 'exec-g1');
+  }, [initialProfile]);
 
   // Editing row modal or inline
   const [editingRow, setEditingRow] = useState<TrackerRow | null>(null);

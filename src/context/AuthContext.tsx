@@ -86,8 +86,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (!prev) return null;
             const isApproved = fresh.registrationStatus === 'approved';
             const isPaid = fresh.paymentStatus === 'approved';
+            const defaultMentorshipId =
+              fresh.program === 'CS Executive'
+                ? fresh.group === 'Group 2'
+                  ? 'exec-g2-mentorship'
+                  : fresh.group === 'Both Groups'
+                  ? 'exec-both-mentorship'
+                  : 'exec-g1-mentorship'
+                : 'cs-mentorship';
             const purchasedIds = isPaid
-              ? ['mentorship-enrolled', fresh.purchasedCourse?.courseId || 'cs-mentorship']
+              ? ['mentorship-enrolled', fresh.purchasedCourse?.courseId || defaultMentorshipId]
               : [];
 
             return {
@@ -200,7 +208,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isPaid = student.paymentStatus === 'approved';
       const purchasedIds: string[] = [];
       if (student.mentorshipAccess) {
-        purchasedIds.push('mentorship-enrolled', student.purchasedCourse?.courseId || 'cs-mentorship');
+        const defaultMentorshipId =
+          student.program === 'CS Executive'
+            ? student.group === 'Group 2'
+              ? 'exec-g2-mentorship'
+              : student.group === 'Both Groups'
+              ? 'exec-both-mentorship'
+              : 'exec-g1-mentorship'
+            : 'cs-mentorship';
+        purchasedIds.push('mentorship-enrolled', student.purchasedCourse?.courseId || defaultMentorshipId);
       }
       if (student.studyIndexAccess) {
         purchasedIds.push('cs-study-progress-index');

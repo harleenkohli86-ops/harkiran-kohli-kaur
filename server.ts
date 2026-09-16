@@ -1460,6 +1460,50 @@ app.delete('/api/students/:id', requireAdminAuth, (req, res) => {
   return res.json({ success: true, message: 'Student removed successfully.' });
 });
 
+// POST update student details (Admin or client synchronization)
+app.post('/api/students/update-details', (req, res) => {
+  const { studentId, email, updates } = req.body;
+  const cleanId = (studentId || '').trim();
+  const cleanEmail = (email || '').trim().toLowerCase();
+
+  if (!cleanId && !cleanEmail) {
+    return res.status(400).json({ success: false, message: 'Student ID or email is required.' });
+  }
+
+  const students = readStudents();
+  const idx = students.findIndex(
+    (s) => (cleanId && s.studentId === cleanId) || (cleanEmail && s.email?.toLowerCase() === cleanEmail)
+  );
+
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Student not found.' });
+  }
+
+  const s = students[idx];
+  if (updates) {
+    if (updates.fullName) s.fullName = updates.fullName.trim();
+    if (updates.email) s.email = updates.email.trim().toLowerCase();
+    if (updates.phone) s.phone = updates.phone.trim();
+    if (updates.program) s.program = updates.program;
+    if (updates.level) s.level = updates.level;
+    if (updates.group) s.group = updates.group;
+    if (updates.targetExam) s.targetExam = updates.targetExam.trim();
+    if (updates.assignedIndexId) s.assignedIndexId = updates.assignedIndexId;
+    if (updates.mentorshipAccess !== undefined) s.mentorshipAccess = updates.mentorshipAccess;
+    if (updates.studyIndexAccess !== undefined) s.studyIndexAccess = updates.studyIndexAccess;
+    if (updates.paymentStatus !== undefined) s.paymentStatus = updates.paymentStatus;
+    if (updates.registrationStatus !== undefined) s.registrationStatus = updates.registrationStatus;
+    if (updates.trackerRows) s.trackerRows = updates.trackerRows;
+    if (updates.studyIndexRows) s.studyIndexRows = updates.studyIndexRows;
+    if (updates.monthlyCalls) s.monthlyCalls = updates.monthlyCalls;
+    if (updates.adminNotes !== undefined) s.adminNotes = updates.adminNotes;
+  }
+  s.updatedAt = new Date().toISOString();
+
+  writeStudents(students);
+  return res.json({ success: true, message: 'Student details updated successfully.', student: s });
+});
+
 // POST update student study progress index (Strict Authorization: Paid StudyTrack Pro + Admin ON)
 app.post('/api/students/update-study-index', (req, res) => {
   const { studentId, email, trackerRows, studyIndexRows, callerEmail } = req.body;

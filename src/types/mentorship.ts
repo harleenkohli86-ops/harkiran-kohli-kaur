@@ -69,6 +69,7 @@ export interface StudentMentorshipProfile {
   targetAttempt: string;
   syllabusVersion?: string;
   trackerRows: TrackerRow[];
+  studyIndexRows?: TrackerRow[];
   monthlyCalls: MonthMentorshipRecord[];
   adminOverallRemarks?: string;
   lastUpdatedByAdmin?: string;

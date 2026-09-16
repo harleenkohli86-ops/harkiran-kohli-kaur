@@ -51,6 +51,7 @@ import {
   subscribeToDatabaseChanges,
   updateStudentStudyIndexRows,
   hasEligibleStudyTrackPurchase,
+  toMentorshipProfile,
   CentralStudent,
 } from '../services/centralStudentDatabase';
 import { getStudyTrackDetails } from '../services/studyTrackService';
@@ -147,6 +148,9 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
     const update = () => {
       const match = getStudentByEmail(targetEmail);
       setCentralStudent(match || null);
+      if (match) {
+        setMentorshipProfile(toMentorshipProfile(match));
+      }
     };
     update();
     const unsub = subscribeToDatabaseChanges(update);
@@ -353,7 +357,24 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
 
   // Enrolled products — strictly approved only!
   const enrolledProductIds = new Set<string>([
-    ...(centralStudent?.mentorshipAccess ? ['exec-g1-mentorship', 'mentorship-enrolled'] : []),
+    ...(centralStudent?.mentorshipAccess
+      ? [
+          centralStudent.program === 'CS Executive'
+            ? centralStudent.group === 'Group 2'
+              ? 'exec-g2-mentorship'
+              : centralStudent.group === 'Both Groups'
+              ? 'exec-both-mentorship'
+              : 'exec-g1-mentorship'
+            : centralStudent.program === 'CS Professional'
+            ? centralStudent.group === 'Group 2'
+              ? 'prof-g2-mentorship'
+              : centralStudent.group === 'Both Groups'
+              ? 'prof-both-mentorship'
+              : 'prof-g1-mentorship'
+            : 'cseet-mentorship',
+          'mentorship-enrolled',
+        ]
+      : []),
     ...(centralStudent?.studyIndexAccess ? ['cs-study-progress-index', studyTrackDetails.productId] : []),
     ...(centralStudent?.paymentStatus === 'approved' && centralStudent?.purchasedCourse?.courseId
       ? [centralStudent.purchasedCourse.courseId]

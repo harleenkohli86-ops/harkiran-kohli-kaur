@@ -32,7 +32,9 @@ import {
   ExternalLink,
   ChevronRight,
   Filter,
+  FileDown,
 } from 'lucide-react';
+import { downloadMentorshipReportPDF } from '../../services/mentorshipReportService';
 
 interface RegisteredStudentsListTabProps {
   students: CentralStudent[];
@@ -70,6 +72,29 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [manualFormError, setManualFormError] = useState('');
   const [manualSuccessMsg, setManualSuccessMsg] = useState('');
+
+  // Mentorship Report PDF state
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportNotice, setReportNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const handleDownloadReport = async () => {
+    setIsGeneratingReport(true);
+    setReportNotice(null);
+    try {
+      const res = await downloadMentorshipReportPDF();
+      if (res.success) {
+        setReportNotice({ message: res.message, type: 'success' });
+      } else {
+        setReportNotice({ message: res.message || 'Report generation failed.', type: 'error' });
+      }
+      setTimeout(() => setReportNotice(null), 5000);
+    } catch (err: any) {
+      setReportNotice({ message: err?.message || 'Report generation failed.', type: 'error' });
+      setTimeout(() => setReportNotice(null), 5000);
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -237,6 +262,20 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
+            onClick={handleDownloadReport}
+            disabled={isGeneratingReport}
+            className="px-3.5 py-2.5 bg-gradient-to-r from-[#1C1917] to-[#2E2419] hover:brightness-110 text-[#FFE3A0] border border-[#C8A45D]/60 font-montserrat font-bold text-xs rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+            title="Download multi-student official Mentorship Report PDF dossier directly from Supabase"
+          >
+            {isGeneratingReport ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[#C8A45D]" />
+            ) : (
+              <FileDown className="w-4 h-4 text-[#C8A45D]" />
+            )}
+            <span>Mentorship Report PDF</span>
+          </button>
+
+          <button
             onClick={() => setIsAddModalOpen(true)}
             className="px-4 py-2.5 bg-gradient-to-r from-[#C8A45D] to-[#B38E46] text-black font-montserrat font-bold text-xs rounded-xl shadow-md hover:brightness-110 flex items-center gap-2 transition-all cursor-pointer"
           >
@@ -253,6 +292,24 @@ export const RegisteredStudentsListTab: React.FC<RegisteredStudentsListTabProps>
           </button>
         </div>
       </div>
+
+      {reportNotice && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+            reportNotice.type === 'success'
+              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
+              : 'bg-red-950/40 border-red-500/50 text-red-200'
+          }`}
+        >
+          <span>{reportNotice.message}</span>
+          <button
+            onClick={() => setReportNotice(null)}
+            className="text-gray-400 hover:text-white cursor-pointer ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs & Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-3">

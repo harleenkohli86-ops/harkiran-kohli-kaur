@@ -153,8 +153,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'contacted' | 'confirmed' | 'completed'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
-  // Admin Active Tab: 'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'
-  const [adminTab, setAdminTab] = useState<'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'>('mentorship_tracker');
+  // Admin Active Tab: 'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'payment_approvals' | 'all_inquiries'
+  const [adminTab, setAdminTab] = useState<'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'payment_approvals' | 'all_inquiries'>('mentorship_tracker');
   const [freeSlotBookings, setFreeSlotBookings] = useState<FreeSlotBookingRecord[]>(() => getAllFreeSlotBookings());
   const [isLoadingFreeSlots, setIsLoadingFreeSlots] = useState(false);
   const [centralStudents, setCentralStudents] = useState<CentralStudent[]>(() => getAllStudents());
@@ -1305,6 +1305,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </button>
 
           <button
+            onClick={() => setAdminTab('payment_approvals')}
+            className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              adminTab === 'payment_approvals'
+                ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md'
+                : 'bg-amber-50 border border-amber-300 text-amber-900 hover:bg-amber-100'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 text-amber-600" />
+            <span>Direct UPI Approvals</span>
+          </button>
+
+          <button
             onClick={() => setAdminTab('all_inquiries')}
             className={`py-2.5 px-4 rounded-xl text-xs font-montserrat font-bold flex items-center gap-2 transition-all cursor-pointer ${
               adminTab === 'all_inquiries'
@@ -1346,6 +1358,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             bookings={freeSlotBookings}
             onRefresh={loadFreeSlotBookings}
             isLoading={isLoadingFreeSlots}
+          />
+        ) : adminTab === 'payment_approvals' ? (
+          <PaymentApprovalsTab
+            students={centralStudents}
+            onRefresh={loadCentralStudents}
+            onOpenMentorshipChart={() => setAdminTab('mentorship_tracker')}
           />
         ) : (
           <div className="space-y-6">

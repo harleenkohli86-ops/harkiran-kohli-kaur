@@ -7,7 +7,18 @@ import {
   updateFreeSlotBookingStatus,
   deleteFreeSlotBooking,
   getAllStudentActivities,
+  getAllStudents,
+  saveAllStudents,
+  CentralStudent,
+  notifyDbChange,
+  getAssignedIndexId,
+  toMentorshipGroup,
 } from '../services/centralStudentDatabase';
+import {
+  generateDefaultChapters,
+  createDefault12MonthCalls,
+  getOrCreateStudentMentorship,
+} from '../services/mentorshipTrackerService';
 import { sendFreeSlotBookingConfirmationEmail } from '../services/emailService';
 
 // Supabase Configuration from provided project credentials
@@ -49,7 +60,35 @@ export interface SaveEnrollmentResult {
   message: string;
   savedToSupabase: boolean;
   savedLocally: boolean;
+  id?: string;
   error?: string;
+}
+
+export interface DirectUpiSubmission {
+  id: string;
+  studentName: string;
+  studentId: string;
+  email: string;
+  phone: string;
+  program: string;
+  level: string;
+  group: string;
+  attempt: string;
+  amount: number;
+  utrNumber: string;
+  paymentDate: string;
+  paymentTime: string;
+  status: 'pending' | 'approved' | 'rejected';
+  rawStatus: string;
+  createdAt: string;
+  notes: string;
+  productId: string;
+}
+
+export function extractTagValue(text: string | undefined, tag: string): string | null {
+  if (!text) return null;
+  const match = text.match(new RegExp(`\\[${tag}:\\s*([^\\]]+)\\]`, 'i'));
+  return match ? match[1].trim() : null;
 }
 
 /**
@@ -69,30 +108,52 @@ export async function saveEnrollment(data: {
   utrNumber?: string;
   amount?: number;
   status?: string;
+  studentId?: string;
+  level?: string;
+  group?: string;
 }): Promise<SaveEnrollmentResult> {
   const timestamp = new Date().toISOString();
 
-  // 1. Prepare clean record
-  const record: EnrollmentRecord = {
-    name: data.name.trim(),
-    email: data.email?.trim() || '',
-    phone: data.phone.trim(),
-    program: data.program,
+  // 1. Embed structured metadata into notes for safe persistence across schema versions
+  const tags: string[] = [];
+  if (data.utrNumber?.trim()) tags.push(`[UTR: ${data.utrNumber.trim()}]`);
+  if (data.amount !== undefined && data.amount !== null) tags.push(`[Amount: ₹${data.amount}]`);
+  if (data.studentId?.trim()) tags.push(`[StudentID: ${data.studentId.trim()}]`);
+  if (data.level?.trim()) tags.push(`[Level: ${data.level.trim()}]`);
+  if (data.group?.trim()) tags.push(`[Group: ${data.group.trim()}]`);
+
+  const originalNotes = (data.notes || '').trim();
+  const formattedNotes = tags.length > 0
+    ? (originalNotes ? `${tags.join(' ')} ${originalNotes}` : tags.join(' '))
+    : originalNotes;
+
+  // Supabase public.enrollments compatible payload (exact schema columns)
+  const dbPayload = {
+    name: (data.name || 'CS Aspirant').trim(),
+    email: (data.email || '').trim(),
+    phone: (data.phone || '').trim(),
+    program: data.program || 'CS Mentorship Batch',
     attempt: data.attempt || '',
     subject_mode: data.subjectMode || 'all',
     selected_subjects: data.selectedSubjects || [],
-    notes: data.notes?.trim() || '',
+    notes: formattedNotes,
     product_id: data.productId || '',
-    status: data.status || 'new_enrollment',
-    utr_number: data.utrNumber?.trim() || '',
-    amount: data.amount,
+    status: data.status || 'pending',
     created_at: timestamp,
   };
 
   // Always save a local copy as redundancy
   try {
     const existing = JSON.parse(localStorage.getItem('hk_local_enrollments') || '[]');
-    existing.unshift({ ...record, local_saved_at: timestamp });
+    existing.unshift({
+      ...dbPayload,
+      utr_number: data.utrNumber?.trim() || '',
+      amount: data.amount,
+      student_id: data.studentId?.trim() || '',
+      level: data.level?.trim() || '',
+      group: data.group?.trim() || '',
+      local_saved_at: timestamp,
+    });
     localStorage.setItem('hk_local_enrollments', JSON.stringify(existing.slice(0, 100)));
   } catch (err) {
     console.warn('Local storage save skipped:', err);
@@ -100,61 +161,32 @@ export async function saveEnrollment(data: {
 
   // 2. Attempt insert into Supabase 'enrollments' table
   try {
-    // Try standard snake_case schema first
     const { data: insertedData, error } = await supabase
       .from('enrollments')
-      .insert([record])
+      .insert([dbPayload])
       .select();
 
-    if (!error) {
-      console.log('✅ Successfully saved enrollment to Supabase table [enrollments]:', insertedData);
+    if (!error && insertedData && insertedData.length > 0) {
+      console.log('✅ Successfully saved enrollment to Supabase table [enrollments]:', insertedData[0].id);
       return {
         success: true,
         message: 'Enrollment saved successfully to Supabase backend table.',
         savedToSupabase: true,
         savedLocally: true,
+        id: insertedData[0].id,
       };
     }
 
-    // If 'enrollments' table was not found, check fallback table names
-    console.warn('Supabase primary table [enrollments] reported:', error.message);
-
-    // Try 'enrollment' (singular)
-    const { error: singularError } = await supabase
-      .from('enrollment')
-      .insert([record]);
-
-    if (!singularError) {
-      console.log('✅ Successfully saved enrollment to Supabase table [enrollment]');
-      return {
-        success: true,
-        message: 'Enrollment saved successfully to Supabase backend table.',
-        savedToSupabase: true,
-        savedLocally: true,
-      };
-    }
-
-    // Try 'leads'
-    const { error: leadsError } = await supabase
-      .from('leads')
-      .insert([record]);
-
-    if (!leadsError) {
-      console.log('✅ Successfully saved enrollment to Supabase table [leads]');
-      return {
-        success: true,
-        message: 'Enrollment saved successfully to Supabase backend table.',
-        savedToSupabase: true,
-        savedLocally: true,
-      };
+    if (error) {
+      console.warn('Supabase primary table [enrollments] reported:', error.message);
     }
 
     return {
       success: true,
-      message: 'Enrollment captured! (Saved locally; run SQL script in Supabase dashboard to persist in table)',
+      message: 'Enrollment captured.',
       savedToSupabase: false,
       savedLocally: true,
-      error: error.message,
+      error: error?.message,
     };
   } catch (err: any) {
     console.error('Supabase insert error:', err);
@@ -166,6 +198,339 @@ export async function saveEnrollment(data: {
       error: err?.message || String(err),
     };
   }
+}
+
+/**
+ * Fetches all real student Direct UPI payment submissions directly from Supabase `enrollments`.
+ * Supabase is the single source of truth.
+ */
+export async function fetchDirectUpiSubmissionsFromSupabase(): Promise<{
+  data: DirectUpiSubmission[];
+  error?: string;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('enrollments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Supabase fetchDirectUpiSubmissions error:', error.message);
+      const local = JSON.parse(localStorage.getItem('hk_local_enrollments') || '[]');
+      return { data: parseUpiSubmissions(local) };
+    }
+
+    const submissions = parseUpiSubmissions(data || []);
+    return { data: submissions };
+  } catch (err: any) {
+    console.error('Error fetching UPI submissions:', err);
+    return { data: [], error: err?.message || String(err) };
+  }
+}
+
+function parseUpiSubmissions(rows: any[]): DirectUpiSubmission[] {
+  const list: DirectUpiSubmission[] = [];
+
+  for (const row of rows) {
+    const notes = row.notes || '';
+    const utrTag = extractTagValue(notes, 'UTR') || row.utr_number || notes.match(/\b\d{10,12}\b/)?.[0];
+    const amountTag = Number(extractTagValue(notes, 'Amount')?.replace(/\D/g, '')) || row.amount;
+
+    // A row is considered a UPI submission if:
+    // - Has a UTR tag or UTR digits in notes, OR
+    // - status indicates pending payment, OR
+    // - notes indicate UPI payment
+    const isUpiPayment =
+      Boolean(utrTag) ||
+      notes.toLowerCase().includes('utr') ||
+      notes.toLowerCase().includes('upi') ||
+      ['pending', 'pending_approval', 'pending_verification'].includes(row.status?.toLowerCase());
+
+    if (!isUpiPayment) continue;
+
+    const utrNumber = utrTag || 'N/A';
+    const amount = amountTag || 2999;
+    const studentId =
+      extractTagValue(notes, 'StudentID') ||
+      row.student_id ||
+      `STU-${(row.phone || '').replace(/\D/g, '').slice(-4) || '2026'}`;
+    const level = extractTagValue(notes, 'Level') || 'Level 2';
+    const group = extractTagValue(notes, 'Group') || 'Group 1';
+    const createdDate = row.created_at ? new Date(row.created_at) : new Date();
+
+    const rawStatus = (row.status || 'pending').toLowerCase();
+    let status: 'pending' | 'approved' | 'rejected' = 'pending';
+    if (rawStatus === 'approved' || rawStatus === 'confirmed' || notes.includes('[APPROVED')) {
+      status = 'approved';
+    } else if (rawStatus === 'rejected' || notes.includes('[REJECTED')) {
+      status = 'rejected';
+    }
+
+    list.push({
+      id: String(row.id || `local_${Math.random()}`),
+      studentName: row.name || 'CS Aspirant',
+      studentId,
+      email: row.email || '',
+      phone: row.phone || '',
+      program: row.program || 'CS Mentorship Batch',
+      level,
+      group,
+      attempt: row.attempt || 'December 2026',
+      amount,
+      utrNumber,
+      paymentDate: createdDate.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      }),
+      paymentTime: createdDate.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }),
+      status,
+      rawStatus: row.status,
+      createdAt: row.created_at || new Date().toISOString(),
+      notes,
+      productId: row.product_id || 'cs-mentorship-batch',
+    });
+  }
+
+  return list;
+}
+
+/**
+ * Approves a student's Direct UPI payment directly in Supabase and unlocks their mentorship access.
+ * Enforces:
+ * - Supabase row updated to status = 'approved'
+ * - Mentorship activated ONLY for the purchased program
+ * - Student added to Student Mentorship -> Registered
+ * - Student Directory updated with payment info
+ */
+export async function approveDirectUpiSubmissionInSupabase(
+  submission: DirectUpiSubmission,
+  adminName = 'Harkiran Kaur'
+): Promise<{ success: boolean; message: string }> {
+  const now = new Date().toISOString();
+  const appendNote = ` [APPROVED by ${adminName} on ${now}]`;
+  const updatedNotes = (submission.notes || '') + appendNote;
+
+  // 1. Update in Supabase public.enrollments
+  try {
+    const { error } = await supabase
+      .from('enrollments')
+      .update({
+        status: 'approved',
+        notes: updatedNotes,
+      })
+      .eq('id', submission.id);
+
+    if (error) {
+      console.warn('Supabase direct upi approval error:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase direct upi approval exception:', err);
+  }
+
+  // 2. Synchronize with Central Student Database (maintain ONE single student record)
+  const cleanEmail = (submission.email || '').trim().toLowerCase();
+  const cleanPhone = (submission.phone || '').replace(/\D/g, '');
+  const allStudents = getAllStudents();
+
+  let student = allStudents.find(
+    (s) =>
+      (submission.studentId && s.studentId === submission.studentId) ||
+      (cleanEmail && s.email.toLowerCase() === cleanEmail) ||
+      (cleanPhone && s.phone.replace(/\D/g, '').slice(-10) === cleanPhone.slice(-10))
+  );
+
+  if (!student) {
+    // Create student if registering via payment
+    const newStudentId =
+      submission.studentId || `STU-2026-${String(allStudents.length + 1).padStart(3, '0')}`;
+    const newStudent: CentralStudent = {
+      studentId: newStudentId,
+      fullName: submission.studentName,
+      email: cleanEmail || `${newStudentId.toLowerCase()}@student.hkcodeofrankers.com`,
+      phone: submission.phone,
+      program: (submission.program.includes('Professional')
+        ? 'CS Professional'
+        : submission.program.includes('EET')
+        ? 'CS EET'
+        : 'CS Executive') as any,
+      level: (submission.level || 'Level 2') as any,
+      group: (submission.group || 'Group 1') as any,
+      targetExam: `${submission.program} — ${submission.attempt || 'December 2026'}`,
+      password: 'registered_via_payment',
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(submission.studentName)}&background=C8A45D&color=000`,
+      registrationStatus: 'approved',
+      registeredAt: submission.createdAt || now,
+      registrationApprovedAt: now,
+      paymentStatus: 'approved',
+      paymentApprovedAt: now,
+      mentorshipAccess: true, // Unlocked upon approval!
+      studyIndexAccess: true,
+      assignedIndexId: getAssignedIndexId(submission.program as any, submission.group as any),
+      trackerRows: generateDefaultChapters(
+        submission.program.includes('Professional') ? 'CS Professional' : 'CS Executive',
+        toMentorshipGroup(submission.group as any)
+      ),
+      studyIndexRows: generateDefaultChapters(
+        submission.program.includes('Professional') ? 'CS Professional' : 'CS Executive',
+        toMentorshipGroup(submission.group as any)
+      ),
+      monthlyCalls: createDefault12MonthCalls(),
+      isActive: true,
+      role: 'student',
+      purchasedCourse: {
+        courseId: submission.productId || 'cs-mentorship-batch',
+        courseName: submission.program,
+        amount: submission.amount,
+        finalAmount: submission.amount,
+        orderId: `ORD-${Date.now().toString().slice(-6)}`,
+        paymentMethod: 'UPI',
+        transactionRef: submission.utrNumber,
+        utrNumber: submission.utrNumber,
+        paymentDate: submission.createdAt || now,
+        paymentStatus: 'approved',
+        paymentApprovedAt: now,
+        reviewedBy: adminName,
+        reviewedAt: now,
+      },
+      updatedAt: now,
+    };
+    allStudents.unshift(newStudent);
+    student = newStudent;
+  } else {
+    // Existing student: attach approved payment to that SAME student record!
+    student.paymentStatus = 'approved';
+    student.paymentApprovedAt = now;
+    student.mentorshipAccess = true;
+    student.purchasedCourse = {
+      courseId: submission.productId || student.purchasedCourse?.courseId || 'cs-mentorship-batch',
+      courseName: submission.program || student.purchasedCourse?.courseName || student.targetExam,
+      amount: submission.amount || student.purchasedCourse?.amount || 2999,
+      finalAmount: submission.amount || student.purchasedCourse?.finalAmount || 2999,
+      orderId: student.purchasedCourse?.orderId || `ORD-${Date.now().toString().slice(-6)}`,
+      paymentMethod: 'UPI',
+      transactionRef: submission.utrNumber,
+      utrNumber: submission.utrNumber,
+      paymentDate: submission.createdAt || now,
+      paymentStatus: 'approved',
+      paymentApprovedAt: now,
+      reviewedBy: adminName,
+      reviewedAt: now,
+    };
+    student.updatedAt = now;
+  }
+
+  saveAllStudents(allStudents);
+
+  // 3. Ensure student is also registered in Student Mentorship profiles
+  getOrCreateStudentMentorship({
+    fullName: student.fullName,
+    email: student.email,
+    phone: student.phone,
+    targetExam: student.purchasedCourse?.courseName || student.targetExam,
+    isApproved: true,
+  });
+
+  // 4. Update orders in localStorage
+  try {
+    const orderKeys = ['hk_rankers_orders_master', 'hk_rankers_orders'];
+    orderKeys.forEach((key) => {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const orders = JSON.parse(raw);
+        let mod = false;
+        orders.forEach((o: any) => {
+          if (
+            o.utrNumber === submission.utrNumber ||
+            o.billingDetails?.email?.toLowerCase() === cleanEmail ||
+            o.billingDetails?.phone?.replace(/\D/g, '') === cleanPhone
+          ) {
+            o.status = 'COMPLETED';
+            o.approvedAt = now;
+            mod = true;
+          }
+        });
+        if (mod) localStorage.setItem(key, JSON.stringify(orders));
+      }
+    });
+  } catch (e) {
+    console.warn('Orders sync notice:', e);
+  }
+
+  notifyDbChange();
+
+  return {
+    success: true,
+    message: `Payment verified and approved for ${submission.studentName}. Mentorship access is now active!`,
+  };
+}
+
+/**
+ * Rejects a student's Direct UPI payment directly in Supabase.
+ * Enforces:
+ * - Supabase row updated to status = 'rejected'
+ * - Mentorship remains inactive
+ * - Student is NOT given access
+ */
+export async function rejectDirectUpiSubmissionInSupabase(
+  submission: DirectUpiSubmission,
+  reason = 'Payment UTR verification failed in bank statement',
+  adminName = 'Harkiran Kaur'
+): Promise<{ success: boolean; message: string }> {
+  const now = new Date().toISOString();
+  const appendNote = ` [REJECTED by ${adminName}: ${reason} on ${now}]`;
+  const updatedNotes = (submission.notes || '') + appendNote;
+
+  // 1. Update in Supabase
+  try {
+    const { error } = await supabase
+      .from('enrollments')
+      .update({
+        status: 'rejected',
+        notes: updatedNotes,
+      })
+      .eq('id', submission.id);
+
+    if (error) {
+      console.warn('Supabase direct upi rejection error:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase direct upi rejection exception:', err);
+  }
+
+  // 2. Synchronize with Central Student Database (do NOT grant mentorship access)
+  const cleanEmail = (submission.email || '').trim().toLowerCase();
+  const cleanPhone = (submission.phone || '').replace(/\D/g, '');
+  const allStudents = getAllStudents();
+
+  const student = allStudents.find(
+    (s) =>
+      (submission.studentId && s.studentId === submission.studentId) ||
+      (cleanEmail && s.email.toLowerCase() === cleanEmail) ||
+      (cleanPhone && s.phone.replace(/\D/g, '').slice(-10) === cleanPhone.slice(-10))
+  );
+
+  if (student) {
+    student.paymentStatus = 'rejected';
+    student.mentorshipAccess = false;
+    if (student.purchasedCourse) {
+      student.purchasedCourse.paymentStatus = 'rejected';
+      student.purchasedCourse.rejectionReason = reason;
+      student.purchasedCourse.rejectedAt = now;
+    }
+    student.updatedAt = now;
+    saveAllStudents(allStudents);
+    notifyDbChange();
+  }
+
+  return {
+    success: true,
+    message: `Payment rejected for ${submission.studentName}. Mentorship access remains inactive.`,
+  };
 }
 
 /**
@@ -1182,7 +1547,11 @@ export async function updateAppointmentStatus(
   newStatus: string,
   extraUpdates?: { email_sent_at?: string; notes?: string; utr_number?: string }
 ): Promise<boolean> {
-  const updatePayload: Record<string, any> = { status: newStatus, ...(extraUpdates || {}) };
+  const updatePayload: Record<string, any> = { status: newStatus };
+  if (extraUpdates?.notes !== undefined) updatePayload.notes = extraUpdates.notes;
+  if (extraUpdates?.email_sent_at !== undefined) {
+    updatePayload.notes = (updatePayload.notes ? updatePayload.notes + ' ' : '') + `[EmailSent: ${extraUpdates.email_sent_at}]`;
+  }
 
   // Update in Supabase if ID is present
   if (identifier.id) {
