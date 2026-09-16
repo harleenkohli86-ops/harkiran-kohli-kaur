@@ -387,14 +387,17 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
 
   // Admin Index Access control:
   // Admin can manually toggle Index Access ON or OFF for each student.
-  // If OFF, the student cannot edit the Index.
-  // If ON and student has eligible approved purchase (or Admin explicitly set ON), student can edit.
-  // Mentorship students without approved Index purchase remain in view-only mode for monitoring.
+  // Access Rules:
+  // PAID STUDYTRACK PRO + ADMIN ACCESS ON = STUDENT CAN EDIT
+  // PAID STUDYTRACK PRO + ADMIN ACCESS OFF = STUDENT CANNOT EDIT
+  // MENTORSHIP ONLY = NO STUDYTRACK PRO EDITING ACCESS
+  // REGISTRATION ONLY = NO STUDYTRACK PRO EDITING ACCESS
   const isIndexTurnedOffByAdmin = centralStudent !== null && centralStudent?.studyIndexAccess === false;
 
   const isStudyIndexActive = Boolean(
-    isImpersonating ||
-    (!isIndexTurnedOffByAdmin && centralStudent?.studyIndexAccess === true && (hasApprovedStudyIndexOrder || centralStudent?.studyIndexAccess))
+    !isIndexTurnedOffByAdmin &&
+    centralStudent?.studyIndexAccess === true &&
+    hasApprovedStudyIndexOrder
   );
 
   // 2. Verification Pending
@@ -1006,13 +1009,16 @@ export const StudentPortalPage: React.FC<StudentPortalPageProps> = ({
             {/* SYLLABUS INDEX COMPONENT (Strictly Isolated to Student's Applicable Index) */}
             <MentorshipTrackerView
               profile={studyIndexProfile}
-              isAdmin={isImpersonating}
+              isAdmin={false}
               isStudyProgressIndex={true}
               onPurchaseStudyIndex={() => setIsStudyIndexCheckoutOpen(true)}
               onProfileUpdated={(updated) => {
                 const studentKey = centralStudent?.studentId || effectiveUser?.email || effectiveUser?.id;
                 if (studentKey) {
-                  updateStudentStudyIndexRows(studentKey, updated.trackerRows);
+                  const res = updateStudentStudyIndexRows(studentKey, updated.trackerRows);
+                  if (!res.success) {
+                    alert(res.message || 'Index editing access is currently disabled. Please contact the Admin.');
+                  }
                 }
               }}
               onExitAdminView={handleExitAdminImpersonation}

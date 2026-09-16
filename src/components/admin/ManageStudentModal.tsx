@@ -4,6 +4,7 @@ import {
   SlotBookingRecord,
   updateStudentAccessDetails,
   approveStudentPayment,
+  isStudyIndexProduct,
   ProgramName,
   ProgramGroup,
   ProgramLevel,
@@ -90,8 +91,15 @@ export const ManageStudentModal: React.FC<ManageStudentModalProps> = ({
   const handleOneClickApprovePayment = () => {
     approveStudentPayment(student.studentId, 'Direct Approval via Manage Student');
     setPaymentStatus('approved');
-    setMentorshipAccess(true);
-    setStudyIndexAccess(true);
+    const isStudyIndex = isStudyIndexProduct(
+      student.purchasedCourse?.courseId,
+      student.purchasedCourse?.courseName
+    );
+    if (isStudyIndex) {
+      setStudyIndexAccess(true);
+    } else {
+      setMentorshipAccess(true);
+    }
     onRefresh();
   };
 

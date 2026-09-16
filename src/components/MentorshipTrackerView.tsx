@@ -354,11 +354,24 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
   }, [initialProfile]);
 
   const persistChange = async (updated: StudentMentorshipProfile) => {
-    setProfile(updated);
-    if (onProfileUpdated) onProfileUpdated(updated);
-    if (isStudyProgressIndex && (profile.studentId || updated.studentId)) {
-      updateStudentStudyIndexRows(profile.studentId || updated.studentId, updated.trackerRows);
+    if (isStudyProgressIndex) {
+      if (!canEdit) {
+        alert('Index editing access is currently disabled. Please contact the Admin.');
+        return;
+      }
+      const targetKey = profile.studentId || updated.studentId;
+      if (targetKey) {
+        const res = updateStudentStudyIndexRows(targetKey, updated.trackerRows);
+        if (!res.success) {
+          alert(res.message || 'Index editing access is currently disabled. Please contact the Admin.');
+          return;
+        }
+      }
+      setProfile(updated);
+      if (onProfileUpdated) onProfileUpdated(updated);
     } else {
+      setProfile(updated);
+      if (onProfileUpdated) onProfileUpdated(updated);
       await saveStudentMentorshipProfile(updated);
     }
     setSaveSuccess(true);
@@ -367,6 +380,10 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
 
   // Toggle Red marking on Chapter No (Admin, Self-Study, or Mentorship student doubt flag)
   const handleToggleChapterRed = (rowId: string) => {
+    if (!canEdit) {
+      alert('Index editing access is currently disabled. Please contact the Admin.');
+      return;
+    }
     const updatedRows = profile.trackerRows.map((r) =>
       r.id === rowId ? { ...r, isChapterRed: !r.isChapterRed } : r
     );
@@ -375,6 +392,10 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
 
   // Toggle Red marking on Topic (Admin, Self-Study, or Mentorship student doubt flag)
   const handleToggleTopicRed = (rowId: string) => {
+    if (!canEdit) {
+      alert('Index editing access is currently disabled. Please contact the Admin.');
+      return;
+    }
     const updatedRows = profile.trackerRows.map((r) =>
       r.id === rowId ? { ...r, isTopicRed: !r.isTopicRed } : r
     );
@@ -387,7 +408,10 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
     field: keyof TrackerRow,
     options: string[] = ['Pending', 'Working', 'Completed']
   ) => {
-    if (!canEdit) return;
+    if (!canEdit) {
+      alert('Index editing access is currently disabled. Please contact the Admin.');
+      return;
+    }
     const updatedRows = profile.trackerRows.map((r) => {
       if (r.id !== rowId) return r;
       const current = (r[field] as string) || 'Pending';
@@ -409,7 +433,10 @@ export const MentorshipTrackerView: React.FC<MentorshipTrackerViewProps> = ({
     field: keyof TrackerRow,
     status: 'Completed' | 'Working' | 'Pending'
   ) => {
-    if (!canEdit) return;
+    if (!canEdit) {
+      alert('Index editing access is currently disabled. Please contact the Admin.');
+      return;
+    }
     const updatedRows = profile.trackerRows.map((r) =>
       r.id === rowId ? { ...r, [field]: status } : r
     );

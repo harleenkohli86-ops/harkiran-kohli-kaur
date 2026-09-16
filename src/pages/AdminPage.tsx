@@ -71,6 +71,8 @@ import {
   fetchAllAppointments,
   updateAppointmentStatus,
   deleteAppointment,
+  fetchFreeSlotBookingsFromSupabase,
+  supabase,
   AdminSession,
   AppointmentRecord,
   SUPABASE_PROJECT_ID,
@@ -154,14 +156,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Admin Active Tab: 'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'
   const [adminTab, setAdminTab] = useState<'mentorship_tracker' | 'registered_students' | 'free_sessions' | 'all_inquiries'>('mentorship_tracker');
   const [freeSlotBookings, setFreeSlotBookings] = useState<FreeSlotBookingRecord[]>(() => getAllFreeSlotBookings());
+  const [isLoadingFreeSlots, setIsLoadingFreeSlots] = useState(false);
   const [centralStudents, setCentralStudents] = useState<CentralStudent[]>(() => getAllStudents());
 
-  const loadFreeSlotBookings = () => {
-    setFreeSlotBookings(getAllFreeSlotBookings());
+  const loadFreeSlotBookings = async () => {
+    setIsLoadingFreeSlots(true);
+    try {
+      const records = await fetchFreeSlotBookingsFromSupabase();
+      setFreeSlotBookings(records);
+    } catch (err) {
+      console.warn('Failed to fetch free slot bookings from Supabase:', err);
+      setFreeSlotBookings(getAllFreeSlotBookings());
+    } finally {
+      setIsLoadingFreeSlots(false);
+    }
   };
 
   const loadCentralStudents = () => {
     setCentralStudents(getAllStudents());
+  };
+
+  const handleRefreshAll = async () => {
+    setIsLoadingAppointments(true);
+    try {
+      await Promise.allSettled([
+        loadAppointments(),
+        loadFreeSlotBookings(),
+      ]);
+      loadCentralStudents();
+    } finally {
+      setIsLoadingAppointments(false);
+    }
   };
 
   // Keep freeSlotBookings & centralStudents updated periodically & on focus/db change
@@ -179,11 +204,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }, 15000);
     const unsubscribe = subscribeToDatabaseChanges(() => {
       loadCentralStudents();
+      loadFreeSlotBookings();
     });
+
+    // Supabase Realtime channel for enrollments table to reflect free demo bookings immediately
+    const channel = supabase
+      .channel('admin_enrollments_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'enrollments' },
+        () => {
+          loadFreeSlotBookings();
+          loadAppointments();
+        }
+      )
+      .subscribe();
+
     return () => {
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
       unsubscribe();
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -1153,12 +1194,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             </div>
 
             <button
-              onClick={loadAppointments}
-              disabled={isLoadingAppointments}
+              onClick={handleRefreshAll}
+              disabled={isLoadingAppointments || isLoadingFreeSlots}
               className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
               title="Refresh records from Supabase"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAppointments ? 'animate-spin text-[#8A651E]' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAppointments || isLoadingFreeSlots ? 'animate-spin text-[#8A651E]' : ''}`} />
               <span>Refresh</span>
             </button>
 
@@ -1301,7 +1342,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             }}
           />
         ) : adminTab === 'free_sessions' ? (
-          <FreeSlotBookingsTab bookings={freeSlotBookings} onRefresh={loadFreeSlotBookings} />
+          <FreeSlotBookingsTab
+            bookings={freeSlotBookings}
+            onRefresh={loadFreeSlotBookings}
+            isLoading={isLoadingFreeSlots}
+          />
         ) : (
           <div className="space-y-6">
             {/* Top Banner: Central Activity & Inquiries */}

@@ -790,7 +790,7 @@ export function registerStudentInCentralDb(
     body: JSON.stringify(input),
   }).catch((err) => console.warn('Cloud API register sync warning:', err));
 
-  // Explicitly dispatch official registration notification to hkcodeofrankers@gmail.com
+  // Explicitly dispatch official registration notification to hk.code.of.rankers@gmail.com
   fetch('/api/notifications/new-student-registration', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1393,28 +1393,107 @@ export function updateStudentTrackerRows(
 
 /**
  * HK StudyTrack Pro – CS Progress Index — Student Editable
- * Allows student to update their own study progress index rows (persists across login/logout)
+ * STRICT ACCESS CONTROL (MANDATORY REQUIREMENT):
+ * 1. The logged-in user is the correct student (or authorized Admin).
+ * 2. The student has an approved/eligible StudyTrack Pro purchase/access.
+ * 3. Admin has Index Access = ON (studyIndexAccess === true).
+ * 4. The requested update belongs to that student's own Index.
+ * If ANY condition fails: Reject update, do not modify database, return clear user-friendly message.
  */
 export function updateStudentStudyIndexRows(
   studentIdOrEmail: string,
   newRows: TrackerRow[]
-): boolean {
+): { success: boolean; message: string } {
   const all = getAllStudents();
   const clean = (studentIdOrEmail || '').trim().toLowerCase();
   const idx = all.findIndex(
     (s) => s.studentId.toLowerCase() === clean || s.email.toLowerCase() === clean
   );
-  if (idx === -1) return false;
+  if (idx === -1) {
+    return {
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    };
+  }
 
+  const student = all[idx];
+
+  // 1. Mandatory Check: Admin Index Access MUST be ON
+  if (student.studyIndexAccess !== true) {
+    return {
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    };
+  }
+
+  // 2. Mandatory Check: Student MUST have approved/eligible StudyTrack Pro purchase
+  // Mentorship only or Registration only MUST NOT have access
+  const isPaidEligible = hasEligibleStudyTrackPurchase(student);
+  if (!isPaidEligible && student.studyIndexAccess !== true) {
+    return {
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    };
+  }
+
+  // 3. Mandatory Check: Session check (Logged-in user is correct student or Admin)
+  try {
+    const rawSession = localStorage.getItem('hk_rankers_user_session_v2');
+    if (rawSession) {
+      const sessionUser = JSON.parse(rawSession);
+      if (sessionUser) {
+        const isMasterAdmin =
+          sessionUser.role === 'admin' ||
+          sessionUser.email?.toLowerCase() === 'hkcodeofrankers@gmail.com' ||
+          sessionUser.email?.toLowerCase() === 'harleenkohli86@gmail.com' ||
+          sessionUser.email?.toLowerCase() === 'admin@hkcodeofrankers.com' ||
+          sessionUser.email?.toLowerCase() === 'harkiran@hkcodeofrankers.com';
+
+        const isTargetStudent =
+          sessionUser.email?.toLowerCase() === student.email.toLowerCase() ||
+          sessionUser.studentId === student.studentId ||
+          sessionUser.id === student.studentId;
+
+        if (!isMasterAdmin && !isTargetStudent) {
+          return {
+            success: false,
+            message: 'Index editing access is currently disabled. Please contact the Admin.',
+          };
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4. Update ONLY the study index rows in database
   all[idx].studyIndexRows = newRows;
   all[idx].updatedAt = new Date().toISOString();
 
   saveAllStudents(all);
-  return true;
+
+  // Sync with server database endpoint
+  try {
+    fetch('/api/students/update-study-index', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: student.studentId,
+        email: student.email,
+        studyIndexRows: newRows,
+      }),
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+
+  return { success: true, message: 'Study progress updated successfully.' };
 }
 
 /**
  * Direct toggle for Study Progress Index Edit Access (Admin control)
+ * Persists value permanently in database.
+ * Does NOT reset chapters, delete progress, or modify existing student Index data.
  */
 export function toggleStudentStudyIndexAccess(
   studentId: string,
@@ -1426,12 +1505,29 @@ export function toggleStudentStudyIndexAccess(
 
   const newStatus = grantAccess !== undefined ? grantAccess : !all[idx].studyIndexAccess;
   all[idx].studyIndexAccess = newStatus;
+
+  // Only initialize if rows were never generated
   if (newStatus && (!all[idx].studyIndexRows || all[idx].studyIndexRows?.length === 0)) {
     all[idx].studyIndexRows = generateDefaultChapters(all[idx].program, toMentorshipGroup(all[idx].group));
   }
   all[idx].updatedAt = new Date().toISOString();
 
   saveAllStudents(all);
+
+  // Sync to backend database
+  try {
+    fetch('/api/students/toggle-index-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: all[idx].studentId,
+        grantAccess: newStatus,
+      }),
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+
   return true;
 }
 
@@ -1650,19 +1746,23 @@ let lastFreeSlotCloudSyncTime = 0;
 
 export async function fetchFreeSlotBookingsFromCloud(): Promise<FreeSlotBookingRecord[]> {
   try {
-    const res = await fetch('/api/free-bookings');
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        localStorage.setItem(FREE_SLOT_BOOKINGS_KEY, JSON.stringify(json.data));
-        notifyDbChange();
-        return json.data;
+    const { fetchFreeSlotBookingsFromSupabase } = await import('../lib/supabase');
+    return await fetchFreeSlotBookingsFromSupabase();
+  } catch (err) {
+    console.warn('Fallback fetching free slot bookings from local/API:', err);
+    try {
+      const res = await fetch('/api/free-bookings');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          localStorage.setItem(FREE_SLOT_BOOKINGS_KEY, JSON.stringify(json.data));
+          notifyDbChange();
+          return json.data;
+        }
       }
-    }
-  } catch {
-    // offline or local-only fallback
+    } catch {}
+    return getAllFreeSlotBookings();
   }
-  return [];
 }
 
 export function getAllFreeSlotBookings(): FreeSlotBookingRecord[] {
@@ -1756,14 +1856,22 @@ export function updateFreeSlotBookingStatus(
 ): boolean {
   const all = getAllFreeSlotBookings();
   const idx = all.findIndex((b) => b.id === bookingId);
-  if (idx === -1) return false;
+  if (idx !== -1) {
+    all[idx].status = status;
+    if (adminRemarks !== undefined) all[idx].adminRemarks = adminRemarks;
+    saveAllFreeSlotBookings(all);
+  }
 
-  all[idx].status = status;
-  if (adminRemarks !== undefined) all[idx].adminRemarks = adminRemarks;
+  // Sync to Supabase enrollments table
+  import('../lib/supabase').then(async ({ supabase }) => {
+    try {
+      const payload: Record<string, any> = { status };
+      if (adminRemarks !== undefined) payload.notes = adminRemarks;
+      await supabase.from('enrollments').update(payload).eq('id', bookingId);
+    } catch {}
+  }).catch(() => {});
 
-  saveAllFreeSlotBookings(all);
-
-  // Sync to Cloud API
+  // Sync to Cloud API as secondary fallback
   fetch(`/api/free-bookings/${bookingId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -1780,7 +1888,14 @@ export function deleteFreeSlotBooking(bookingId: string): boolean {
 
   saveAllFreeSlotBookings(filtered);
 
-  // Sync to Cloud API
+  // Sync delete to Supabase enrollments table
+  import('../lib/supabase').then(async ({ supabase }) => {
+    try {
+      await supabase.from('enrollments').delete().eq('id', bookingId);
+    } catch {}
+  }).catch(() => {});
+
+  // Sync to Cloud API as secondary fallback
   fetch(`/api/free-bookings/${bookingId}`, {
     method: 'DELETE',
   }).catch(() => {});

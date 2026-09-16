@@ -1,49 +1,52 @@
 import React, { useState } from 'react';
 import {
-  FreeSlotBookingRecord,
-  updateFreeSlotBookingStatus,
-  deleteFreeSlotBooking,
-} from '../../services/centralStudentDatabase';
-import {
   PhoneCall,
-  User,
+  Calendar,
+  Clock,
   Mail,
   Phone,
-  CheckCircle2,
-  Clock,
-  Search,
+  User,
   MessageSquare,
-  Sparkles,
-  Trash2,
-  ExternalLink,
-  ShieldCheck,
-  Calendar,
+  Search,
+  CheckCircle,
   AlertTriangle,
+  Trash2,
   Copy,
   Check,
-  Send,
   Download,
+  RefreshCw,
+  FileText,
 } from 'lucide-react';
+import { FreeSlotBookingRecord, FreeSlotStatus } from '../../services/centralStudentDatabase';
+import {
+  parseSlotDateTime,
+  updateFreeSlotBookingStatusInSupabase,
+  deleteFreeSlotBookingFromSupabase,
+} from '../../lib/supabase';
 
 interface FreeSlotBookingsTabProps {
   bookings: FreeSlotBookingRecord[];
-  onRefresh: () => void;
+  onRefresh: () => Promise<void> | void;
+  isLoading?: boolean;
 }
 
 export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
   bookings,
   onRefresh,
+  isLoading = false,
 }) => {
-  const [filter, setFilter] = useState<'all' | 'pending' | 'booked' | 'confirmed' | 'rescheduled' | 'completed' | 'cancelled'>('all');
+  const [filter, setFilter] = useState<'all' | 'booked' | 'completed' | 'rescheduled'>('all');
   const [search, setSearch] = useState('');
   const [editingRemarksId, setEditingRemarksId] = useState<string | null>(null);
   const [remarksInput, setRemarksInput] = useState('');
   const [bookingToDelete, setBookingToDelete] = useState<FreeSlotBookingRecord | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const pendingCount = bookings.filter((b) => b.status === 'pending' || b.status === 'booked').length;
-  const confirmedCount = bookings.filter((b) => b.status === 'confirmed').length;
+  // Status Counts
+  const bookedCount = bookings.filter((b) => b.status === 'booked' || b.status === 'pending' || b.status === 'confirmed').length;
   const completedCount = bookings.filter((b) => b.status === 'completed').length;
+  const rescheduledCount = bookings.filter((b) => b.status === 'rescheduled').length;
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -51,31 +54,58 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const handleStatusChange = (
+  const handleStatusChange = async (
     bookingId: string,
-    newStatus: 'pending' | 'booked' | 'confirmed' | 'rescheduled' | 'completed' | 'cancelled'
+    newStatus: FreeSlotStatus
   ) => {
-    updateFreeSlotBookingStatus(bookingId, newStatus);
-    onRefresh();
+    setUpdatingId(bookingId);
+    try {
+      await updateFreeSlotBookingStatusInSupabase(bookingId, newStatus);
+      await onRefresh();
+    } catch (err) {
+      console.error('Failed to update free slot status:', err);
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
-  const handleSaveRemarks = (bookingId: string) => {
+  const handleSaveRemarks = async (bookingId: string) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
-    updateFreeSlotBookingStatus(bookingId, booking.status, remarksInput);
-    setEditingRemarksId(null);
-    setRemarksInput('');
-    onRefresh();
+    setUpdatingId(bookingId);
+    try {
+      await updateFreeSlotBookingStatusInSupabase(bookingId, booking.status, remarksInput);
+      setEditingRemarksId(null);
+      setRemarksInput('');
+      await onRefresh();
+    } catch (err) {
+      console.error('Failed to save remarks:', err);
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
-  const handleDeleteBooking = (bookingId: string) => {
-    deleteFreeSlotBooking(bookingId);
-    setBookingToDelete(null);
-    onRefresh();
+  const handleDeleteBooking = async (bookingId: string) => {
+    setUpdatingId(bookingId);
+    try {
+      await deleteFreeSlotBookingFromSupabase(bookingId);
+      setBookingToDelete(null);
+      await onRefresh();
+    } catch (err) {
+      console.error('Failed to delete booking:', err);
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   const filteredBookings = bookings.filter((b) => {
-    if (filter !== 'all' && b.status !== filter) return false;
+    if (filter === 'booked') {
+      const isBooked = b.status === 'booked' || b.status === 'pending' || b.status === 'confirmed';
+      if (!isBooked) return false;
+    } else if (filter !== 'all' && b.status !== filter) {
+      return false;
+    }
+
     if (search.trim()) {
       const q = search.toLowerCase();
       return (
@@ -83,7 +113,8 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
         b.email.toLowerCase().includes(q) ||
         b.phone.includes(q) ||
         b.program.toLowerCase().includes(q) ||
-        b.id.toLowerCase().includes(q)
+        b.id.toLowerCase().includes(q) ||
+        (b.notes && b.notes.toLowerCase().includes(q))
       );
     }
     return true;
@@ -92,58 +123,83 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
   const openWhatsApp = (b: FreeSlotBookingRecord) => {
     const cleanPhone = b.phone.replace(/\D/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const slotInfo = parseSlotDateTime(b.preferredSlot);
     const text = encodeURIComponent(
-      `Hello ${b.name}! This is Harkiran Kaur Kohli (AIR 3) from HK Code of Rankers.\n\n` +
-      `Thank you for booking your 1st Free Demo Guidance Session!\n` +
-      `📚 Program: ${b.program}\n` +
-      `⏰ Preferred Slot: ${b.preferredSlot}\n` +
-      `🆔 Booking ID: ${b.id}\n\n` +
-      `I would love to help you build your CS exam strategy and share proven ICSI answer writing techniques. Let me know when you are available to connect!`
+      `Hello ${b.name}! This is Harkiran Kaur Kohli (AIR 3 CS Professional) from HK Code of Rankers.\n\n` +
+      `Thank you for booking your Free 1-on-1 Guidance Demo Session!\n` +
+      `📚 Target Exam: ${b.program}\n` +
+      `📅 Selected Date: ${slotInfo.selectedDate}\n` +
+      `⏰ Selected Time: ${slotInfo.selectedTime}\n` +
+      `🆔 Reference: ${b.id}\n\n` +
+      `I am looking forward to our strategy call to build your structured CS study plan. Please let me know if this time works for you!`
     );
     window.open(`https://wa.me/${phoneWithCountry}?text=${text}`, '_blank');
   };
 
   const openGmail = (b: FreeSlotBookingRecord) => {
+    const slotInfo = parseSlotDateTime(b.preferredSlot);
     const subject = encodeURIComponent(`1-on-1 Free Strategy Call Confirmation — HK Code of Rankers (${b.id})`);
     const body = encodeURIComponent(
       `Dear ${b.name},\n\n` +
-      `Thank you for booking your 1-on-1 Free Strategy Call with Harkiran Kaur Kohli (AIR 3, 413/700 with 4 exemptions).\n\n` +
-      `Your Free Session Details:\n` +
-      `• Program / Stage: ${b.program}\n` +
-      `• Preferred Time Slot: ${b.preferredSlot}\n` +
-      `• Registered WhatsApp: ${b.phone}\n` +
+      `Thank you for booking your 1-on-1 Free Strategy Call with Harkiran Kaur Kohli (AIR 3 CS Professional, 413/700 with 4 exemptions).\n\n` +
+      `YOUR FREE SESSION DETAILS:\n` +
+      `• Candidate Name: ${b.name}\n` +
+      `• Target Exam / Level: ${b.program}\n` +
+      `• Selected Date: ${slotInfo.selectedDate}\n` +
+      `• Selected Time: ${slotInfo.selectedTime}\n` +
+      `• WhatsApp Mobile: ${b.phone}\n` +
       `• Booking Reference: ${b.id}\n\n` +
-      (b.notes ? `Your Query: "${b.notes}"\n\n` : '') +
-      `We will connect on WhatsApp / Google Meet at your requested slot. Please keep your study timetable, doubts, and recent exam marksheets ready for review.\n\n` +
+      (b.notes ? `Your Inquiries / Goals: "${b.notes}"\n\n` : '') +
+      `We will connect at your chosen slot. Please keep your current study schedule and questions ready.\n\n` +
       `Warm regards,\n` +
       `Harkiran Kaur Kohli\n` +
       `All India Rank 3 (AIR 3) | Founder, HK Code of Rankers\n` +
-      `Official Desk: hkcodeofrankers@gmail.com`
+      `Official Desk: hk.code.of.rankers@gmail.com`
     );
     window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(b.email)}&su=${subject}&body=${body}`, '_blank');
   };
 
   const exportToCSV = () => {
     if (bookings.length === 0) return;
-    const headers = ['Booking ID', 'Date', 'Name', 'Email', 'WhatsApp Phone', 'Program', 'Preferred Slot', 'Notes', 'Status', 'Admin Remarks'];
-    const rows = bookings.map((b) => [
-      b.id,
-      b.createdAt,
-      `"${b.name.replace(/"/g, '""')}"`,
-      b.email,
-      b.phone,
-      `"${b.program.replace(/"/g, '""')}"`,
-      `"${b.preferredSlot.replace(/"/g, '""')}"`,
-      `"${(b.notes || '').replace(/"/g, '""')}"`,
-      b.status,
-      `"${(b.adminRemarks || '').replace(/"/g, '""')}"`,
-    ]);
+    const headers = [
+      'Booking ID',
+      'Student Name',
+      'Phone Number',
+      'Email',
+      'Target Exam',
+      'Selected Date',
+      'Selected Time',
+      'Registration Date',
+      'Registration Time',
+      'Status',
+      'Student Notes',
+      'Admin Remarks',
+    ];
+    const rows = bookings.map((b) => {
+      const slot = parseSlotDateTime(b.preferredSlot);
+      const regDate = new Date(b.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      const regTime = new Date(b.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      return [
+        b.id,
+        `"${b.name.replace(/"/g, '""')}"`,
+        `"${b.phone.replace(/"/g, '""')}"`,
+        `"${b.email.replace(/"/g, '""')}"`,
+        `"${b.program.replace(/"/g, '""')}"`,
+        `"${slot.selectedDate.replace(/"/g, '""')}"`,
+        `"${slot.selectedTime.replace(/"/g, '""')}"`,
+        `"${regDate}"`,
+        `"${regTime}"`,
+        b.status,
+        `"${(b.notes || '').replace(/"/g, '""')}"`,
+        `"${(b.adminRemarks || '').replace(/"/g, '""')}"`,
+      ];
+    });
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `HK_Free_Session_Bookings_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `HK_Free_Demo_Session_Bookings_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -161,14 +217,14 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
             <div className="text-[10px] uppercase font-montserrat font-bold text-emerald-400 tracking-wider flex items-center gap-1.5">
               <span>Free Demo Sessions</span>
               <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded text-[9px]">
-                1st Guidance Call (Free)
+                Supabase Database: enrollments
               </span>
             </div>
             <h2 className="font-cinzel text-base sm:text-lg font-bold text-white mt-0.5">
               Free Session Bookings (1st Guidance Call Demo)
             </h2>
             <p className="text-xs text-gray-400">
-              Prospective students who requested a complimentary 1st strategy consultation. Connect via WhatsApp or email to schedule and onboard.
+              Students who booked a complimentary 1-on-1 strategy session. Synced directly from the Supabase database.
             </p>
           </div>
         </div>
@@ -186,24 +242,14 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
             All ({bookings.length})
           </button>
           <button
-            onClick={() => setFilter('pending')}
+            onClick={() => setFilter('booked')}
             className={`px-3 py-1.5 rounded-xl text-xs font-montserrat font-bold transition-all cursor-pointer ${
-              filter === 'pending'
+              filter === 'booked'
                 ? 'bg-amber-500 text-black shadow-md'
                 : 'bg-white/10 text-gray-300 hover:bg-white/20'
             }`}
           >
-            Pending ({pendingCount})
-          </button>
-          <button
-            onClick={() => setFilter('confirmed')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-montserrat font-bold transition-all cursor-pointer ${
-              filter === 'confirmed'
-                ? 'bg-emerald-500 text-white shadow-md'
-                : 'bg-white/10 text-gray-300 hover:bg-white/20'
-            }`}
-          >
-            Confirmed ({confirmedCount})
+            Booked ({bookedCount})
           </button>
           <button
             onClick={() => setFilter('completed')}
@@ -215,16 +261,26 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
           >
             Completed ({completedCount})
           </button>
+          <button
+            onClick={() => setFilter('rescheduled')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-montserrat font-bold transition-all cursor-pointer ${
+              filter === 'rescheduled'
+                ? 'bg-purple-500 text-white shadow-md'
+                : 'bg-white/10 text-gray-300 hover:bg-white/20'
+            }`}
+          >
+            Rescheduled ({rescheduledCount})
+          </button>
         </div>
       </div>
 
-      {/* Search & Export Bar */}
+      {/* Search & Actions Bar */}
       <div className="bg-white border border-[#C8A45D]/30 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search candidate name, registered email, phone or booking ID..."
+            placeholder="Search student name, email, phone, target exam..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C8A45D]"
@@ -233,10 +289,20 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
           <button
+            onClick={() => onRefresh()}
+            disabled={isLoading}
+            className="px-3.5 py-2 bg-[#FAF5E9] hover:bg-[#F3EAD3] border border-[#C8A45D]/40 text-[#8A651E] text-xs font-montserrat font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            title="Refresh bookings directly from Supabase database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>{isLoading ? 'Syncing...' : 'Refresh DB'}</span>
+          </button>
+
+          <button
             onClick={exportToCSV}
             disabled={bookings.length === 0}
             className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-800 text-xs font-montserrat font-bold rounded-xl flex items-center gap-2 border border-gray-300 transition-colors cursor-pointer"
-            title="Download CSV report of free session leads"
+            title="Download CSV report of free session bookings"
           >
             <Download className="w-3.5 h-3.5 text-gray-600" />
             <span>Export CSV</span>
@@ -252,17 +318,18 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
               <PhoneCall className="w-6 h-6" />
             </div>
             <p className="text-gray-600 font-medium text-sm">No free session bookings found.</p>
-            <p className="text-xs text-gray-400">When students submit the "Book Free Session" modal, their details appear here in real-time.</p>
+            <p className="text-xs text-gray-400">When students submit the Free Demo Session booking modal, their details appear here in real-time from Supabase.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-[#1C1917] text-white font-montserrat font-bold text-[11px] uppercase tracking-wider">
-                  <th className="py-3.5 px-4">Booking ID & Date</th>
-                  <th className="py-3.5 px-4">Candidate Email & WhatsApp</th>
-                  <th className="py-3.5 px-4">Program & Slot Requested</th>
-                  <th className="py-3.5 px-4">Query / Notes</th>
+                  <th className="py-3.5 px-4">Student & Contact Details</th>
+                  <th className="py-3.5 px-4">Target Exam</th>
+                  <th className="py-3.5 px-4">Selected Date & Time</th>
+                  <th className="py-3.5 px-4">Registration Date & Time</th>
+                  <th className="py-3.5 px-4">Notes</th>
                   <th className="py-3.5 px-4 text-center">Status</th>
                   <th className="py-3.5 px-4 text-right">Connect Directly</th>
                 </tr>
@@ -270,54 +337,34 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
               <tbody className="divide-y divide-gray-200 bg-white">
                 {filteredBookings.map((b) => {
                   const isEditingRemarks = editingRemarksId === b.id;
+                  const isUpdating = updatingId === b.id;
+                  const slot = parseSlotDateTime(b.preferredSlot);
+                  const regDate = new Date(b.createdAt).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  });
+                  const regTime = new Date(b.createdAt).toLocaleTimeString('en-IN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  });
+
+                  // Normalize status for display
+                  let normalizedStatus: FreeSlotStatus = 'booked';
+                  if (b.status === 'completed') normalizedStatus = 'completed';
+                  else if (b.status === 'rescheduled') normalizedStatus = 'rescheduled';
+                  else normalizedStatus = 'booked';
 
                   return (
                     <tr key={b.id} className="hover:bg-gray-50/80 transition-colors">
-                      {/* Booking ID & Date */}
-                      <td className="py-3.5 px-4 align-top">
-                        <span className="font-mono font-bold text-xs bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200">
-                          {b.id}
-                        </span>
-                        <div className="text-[11px] text-gray-500 font-medium mt-1">
-                          {new Date(b.createdAt).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </div>
-                        <div className="text-[10px] text-gray-400">
-                          {new Date(b.createdAt).toLocaleTimeString('en-IN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </div>
-                      </td>
-
-                      {/* Candidate Info (Name, Email, WhatsApp) */}
+                      {/* 1. Student Name, 2. Phone, 3. Email */}
                       <td className="py-3.5 px-4 space-y-1.5 align-top max-w-xs">
                         <div className="font-bold text-gray-950 text-xs flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5 text-[#C8A45D]" />
                           <span>{b.name}</span>
                         </div>
 
-                        {/* Email Row with Copy */}
-                        <div className="flex items-center gap-1.5 text-gray-700 text-[11px] bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                          <Mail className="w-3 h-3 text-[#8A651E] shrink-0" />
-                          <span className="font-mono truncate select-all">{b.email}</span>
-                          <button
-                            onClick={() => handleCopy(b.email, `email-${b.id}`)}
-                            className="ml-auto text-gray-400 hover:text-black p-0.5"
-                            title="Copy email address"
-                          >
-                            {copiedKey === `email-${b.id}` ? (
-                              <Check className="w-3 h-3 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-
-                        {/* WhatsApp / Phone Row with Copy */}
+                        {/* Phone with copy */}
                         <div className="flex items-center gap-1.5 text-gray-700 text-[11px] bg-emerald-50/70 px-2 py-1 rounded border border-emerald-200">
                           <Phone className="w-3 h-3 text-emerald-700 shrink-0" />
                           <span className="font-mono font-medium text-emerald-900 select-all">{b.phone}</span>
@@ -333,23 +380,64 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
                             )}
                           </button>
                         </div>
+
+                        {/* Email with copy */}
+                        <div className="flex items-center gap-1.5 text-gray-700 text-[11px] bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                          <Mail className="w-3 h-3 text-[#8A651E] shrink-0" />
+                          <span className="font-mono truncate select-all">{b.email || 'No email provided'}</span>
+                          {b.email && (
+                            <button
+                              onClick={() => handleCopy(b.email, `email-${b.id}`)}
+                              className="ml-auto text-gray-400 hover:text-black p-0.5"
+                              title="Copy email address"
+                            >
+                              {copiedKey === `email-${b.id}` ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-[10px] text-gray-400 font-mono">
+                          Ref: {b.id}
+                        </div>
                       </td>
 
-                      {/* Program & Slot */}
-                      <td className="py-3.5 px-4 space-y-1 align-top">
-                        <div className="font-bold text-gray-800 text-xs">
+                      {/* 4. Target Exam / Attempt */}
+                      <td className="py-3.5 px-4 align-top">
+                        <span className="font-semibold text-gray-900 text-xs bg-[#FAF5E9] text-[#8A651E] px-2.5 py-1 rounded-lg border border-[#C8A45D]/30 inline-block">
                           {b.program}
+                        </span>
+                      </td>
+
+                      {/* 5. Selected Date, 6. Selected Time */}
+                      <td className="py-3.5 px-4 space-y-1 align-top">
+                        <div className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-[#C8A45D]" />
+                          <span>{slot.selectedDate}</span>
                         </div>
-                        <div className="text-[11px] text-[#8A651E] font-semibold flex items-center gap-1 bg-[#FAF5E9] px-2 py-1 rounded border border-[#C8A45D]/30 w-fit">
-                          <Clock className="w-3 h-3 text-[#C8A45D]" />
-                          <span>{b.preferredSlot}</span>
+                        <div className="text-[11px] text-gray-600 flex items-center gap-1.5 bg-gray-50 px-2 py-0.5 rounded border border-gray-200 w-fit">
+                          <Clock className="w-3 h-3 text-gray-500" />
+                          <span>{slot.selectedTime}</span>
                         </div>
                       </td>
 
-                      {/* Notes / Remarks */}
+                      {/* 7. Registration Date, 8. Registration Time */}
+                      <td className="py-3.5 px-4 space-y-0.5 align-top">
+                        <div className="text-xs text-gray-800 font-medium">
+                          {regDate}
+                        </div>
+                        <div className="text-[10px] text-gray-400 font-mono">
+                          {regTime}
+                        </div>
+                      </td>
+
+                      {/* 10. Notes, if available */}
                       <td className="py-3.5 px-4 space-y-1 max-w-xs align-top">
                         {b.notes ? (
-                          <p className="text-[11px] text-gray-700 italic bg-amber-50/60 p-2 rounded border border-amber-200/60 leading-relaxed">
+                          <p className="text-[11px] text-gray-700 italic bg-amber-50/70 p-2 rounded-lg border border-amber-200/70 leading-relaxed">
                             "{b.notes}"
                           </p>
                         ) : (
@@ -371,6 +459,7 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
                             />
                             <button
                               onClick={() => handleSaveRemarks(b.id)}
+                              disabled={isUpdating}
                               className="px-2 py-1 bg-[#C8A45D] text-black font-bold text-xs rounded cursor-pointer"
                             >
                               Save
@@ -385,45 +474,37 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
                         )}
                       </td>
 
-                      {/* Status */}
+                      {/* 9. Current Status (Booked, Completed, Rescheduled) */}
                       <td className="py-3.5 px-4 text-center align-top">
                         <select
-                          value={b.status}
+                          value={normalizedStatus}
+                          disabled={isUpdating}
                           onChange={(e) =>
-                            handleStatusChange(
-                              b.id,
-                              e.target.value as 'pending' | 'booked' | 'confirmed' | 'rescheduled' | 'completed' | 'cancelled'
-                            )
+                            handleStatusChange(b.id, e.target.value as FreeSlotStatus)
                           }
-                          className={`text-xs font-bold px-2.5 py-1 rounded-full border cursor-pointer ${
-                            b.status === 'confirmed'
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              : b.status === 'completed'
+                          className={`text-xs font-bold px-3 py-1.5 rounded-xl border cursor-pointer transition-all shadow-xs ${
+                            normalizedStatus === 'completed'
                               ? 'bg-blue-100 text-blue-800 border-blue-300'
-                              : b.status === 'cancelled'
-                              ? 'bg-rose-100 text-rose-800 border-rose-300'
-                              : b.status === 'rescheduled'
+                              : normalizedStatus === 'rescheduled'
                               ? 'bg-purple-100 text-purple-800 border-purple-300'
-                              : b.status === 'booked'
-                              ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
-                              : 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-amber-100 text-amber-900 border-amber-300'
                           }`}
                         >
-                          <option value="pending">Pending</option>
                           <option value="booked">Booked</option>
-                          <option value="confirmed">Confirmed</option>
-                          <option value="rescheduled">Rescheduled</option>
                           <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
+                          <option value="rescheduled">Rescheduled</option>
                         </select>
+                        {isUpdating && (
+                          <div className="text-[9px] text-gray-400 mt-1">Updating...</div>
+                        )}
                       </td>
 
-                      {/* Actions: Direct WhatsApp & Email Connect */}
+                      {/* Actions: Direct WhatsApp, Email & Delete */}
                       <td className="py-3.5 px-4 text-right align-top">
                         <div className="flex flex-col gap-1.5 items-end">
                           <button
                             onClick={() => openWhatsApp(b)}
-                            className="w-full max-w-[170px] px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-montserrat font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                            className="w-full max-w-[160px] px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-montserrat font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                             title="Chat with candidate on WhatsApp"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
@@ -432,7 +513,7 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
 
                           <button
                             onClick={() => openGmail(b)}
-                            className="w-full max-w-[170px] px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-montserrat font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                            className="w-full max-w-[160px] px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-montserrat font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                             title="Send confirmation email via Gmail"
                           >
                             <Mail className="w-3.5 h-3.5" />
@@ -479,14 +560,14 @@ export const FreeSlotBookingsTab: React.FC<FreeSlotBookingsTabProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-gray-900 text-base">Delete Free Session Booking</h3>
-                <p className="text-xs text-gray-500">This action cannot be undone.</p>
+                <p className="text-xs text-gray-500">This will remove the booking from the database.</p>
               </div>
             </div>
 
             <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
               <div><span className="font-semibold text-gray-700">Student:</span> {bookingToDelete.name}</div>
               <div><span className="font-semibold text-gray-700">Phone:</span> {bookingToDelete.phone}</div>
-              <div><span className="font-semibold text-gray-700">Program:</span> {bookingToDelete.program}</div>
+              <div><span className="font-semibold text-gray-700">Target Exam:</span> {bookingToDelete.program}</div>
               <div><span className="font-semibold text-gray-700">Slot:</span> {bookingToDelete.preferredSlot}</div>
             </div>
 

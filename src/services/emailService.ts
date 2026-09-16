@@ -485,7 +485,7 @@ async function sendBackgroundAutomatedEmail(payload: {
   type: 'ENROLLMENT' | 'REGISTRATION';
 }): Promise<boolean> {
   try {
-    const res = await fetch('https://formsubmit.co/ajax/hkcodeofrankers@gmail.com', {
+    const res = await fetch('https://formsubmit.co/ajax/hk.code.of.rankers@gmail.com', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -530,7 +530,7 @@ Registration Summary:
 • Mobile / WhatsApp: ${params.studentPhone}
 • Target ICSI Exam: ${params.targetExam}
 • Head Mentor: Harkiran Kaur (AIR 3 CS Professional)
-• Official Academy Email: hkcodeofrankers@gmail.com
+• Official Academy Email: hk.code.of.rankers@gmail.com
 
 Student Portal Features:
 1. View enrolled mentorship courses & test schedules
@@ -1231,14 +1231,27 @@ Official Workspace: hk.code.of.rankers@gmail.com
 Helpline: +91 92840 84523
 HK Code of Rankers`;
 
+  // Send primary notification to academy admin inbox as requested: hk.code.of.rankers@gmail.com
   sendBackgroundAutomatedEmail({
-    recipientEmail: data.candidateEmail,
+    recipientEmail: 'hk.code.of.rankers@gmail.com',
     studentName: data.candidateName,
-    subject,
+    subject: `[FREE DEMO BOOKING] ${data.candidateName} (${data.program}) - ${data.preferredSlot}`,
     messageText: text,
     orderNumber: data.bookingId || 'FREE-SLOT',
     type: 'ENROLLMENT',
   });
+
+  // Also send candidate confirmation copy if email provided
+  if (data.candidateEmail && data.candidateEmail.includes('@')) {
+    sendBackgroundAutomatedEmail({
+      recipientEmail: data.candidateEmail,
+      studentName: data.candidateName,
+      subject,
+      messageText: text,
+      orderNumber: data.bookingId || 'FREE-SLOT',
+      type: 'ENROLLMENT',
+    });
+  }
 
   return true;
 }

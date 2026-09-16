@@ -553,6 +553,7 @@ export const BookCounsellingModal: React.FC<CounsellingModalProps> = ({ isOpen, 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [supabaseSaved, setSupabaseSaved] = useState(false);
   const [bookingId, setBookingId] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Close with Escape key
   useEffect(() => {
@@ -568,12 +569,16 @@ export const BookCounsellingModal: React.FC<CounsellingModalProps> = ({ isOpen, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!formData.name.trim() || !formData.email.trim() || !formData.phone.trim()) {
       alert('Please provide your name, email address, and WhatsApp number.');
       return;
     }
 
     setIsSubmitting(true);
+    setErrorMessage(null);
+
     const result = await saveCounsellingBooking({
       name: formData.name.trim(),
       email: formData.email.trim().toLowerCase(),
@@ -583,10 +588,18 @@ export const BookCounsellingModal: React.FC<CounsellingModalProps> = ({ isOpen, 
       notes: formData.notes.trim(),
     });
 
-    const generatedId = `FREE-${Date.now().toString().slice(-4)}`;
-    setBookingId(generatedId);
     setIsSubmitting(false);
-    setSupabaseSaved(result.savedToSupabase);
+
+    if (!result.success || !result.savedToSupabase) {
+      setErrorMessage(
+        result.message || 'Unable to confirm your slot in the database right now. Please check your connection and retry.'
+      );
+      return;
+    }
+
+    const generatedId = result.booking?.id || `FREE-${Date.now().toString().slice(-4)}`;
+    setBookingId(generatedId);
+    setSupabaseSaved(true);
     setSubmitted(true);
   };
 
@@ -648,6 +661,13 @@ export const BookCounsellingModal: React.FC<CounsellingModalProps> = ({ isOpen, 
             <p className="text-xs text-gray-600 font-poppins leading-relaxed">
               Get an honest 15-minute 1-on-1 session with Harkiran Kaur (AIR 3 • 413/700 with 4 exemptions) to review your study plan, exam strategy, and subject approach.
             </p>
+
+            {errorMessage && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             <form
               onSubmit={handleSubmit}

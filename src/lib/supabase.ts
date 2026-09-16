@@ -1,8 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import {
-  createFreeSlotBooking,
+  FreeSlotBookingRecord,
+  FreeSlotStatus,
+  getAllFreeSlotBookings,
+  saveAllFreeSlotBookings,
+  updateFreeSlotBookingStatus,
+  deleteFreeSlotBooking,
   getAllStudentActivities,
 } from '../services/centralStudentDatabase';
+import { sendFreeSlotBookingConfirmationEmail } from '../services/emailService';
 
 // Supabase Configuration from provided project credentials
 export const SUPABASE_PROJECT_ID = 'qafnqmguzzrhksoitrzf';
@@ -163,7 +169,38 @@ export async function saveEnrollment(data: {
 }
 
 /**
- * Saves 1-on-1 career counselling bookings (Free Slot Bookings)
+ * Parses preferred slot string into cleanly formatted Selected Date and Selected Time
+ */
+export function parseSlotDateTime(slotString: string): { selectedDate: string; selectedTime: string } {
+  if (!slotString) return { selectedDate: 'Upcoming', selectedTime: 'Flexible' };
+
+  // Pattern: "Tomorrow Evening (4:00 PM - 6:00 PM)" or "Today Evening (6:00 PM - 8:00 PM)"
+  const parenMatch = slotString.match(/^(.*?)\s*\((.*?)\)$/);
+  if (parenMatch) {
+    return {
+      selectedDate: parenMatch[1].trim(),
+      selectedTime: parenMatch[2].trim(),
+    };
+  }
+
+  // Pattern: "Tomorrow at 4:00 PM"
+  const atMatch = slotString.match(/^(.*?)\s+at\s+(.*)$/i);
+  if (atMatch) {
+    return {
+      selectedDate: atMatch[1].trim(),
+      selectedTime: atMatch[2].trim(),
+    };
+  }
+
+  return {
+    selectedDate: slotString,
+    selectedTime: 'Confirmed on Call',
+  };
+}
+
+/**
+ * Saves 1-on-1 career counselling bookings (Free Demo Session Bookings)
+ * Directly verifies that the database INSERT succeeds before confirmation & email.
  */
 export async function saveCounsellingBooking(data: {
   name: string;
@@ -172,64 +209,241 @@ export async function saveCounsellingBooking(data: {
   examLevel: string;
   date: string;
   notes?: string;
-}): Promise<SaveEnrollmentResult> {
+}): Promise<SaveEnrollmentResult & { booking?: FreeSlotBookingRecord }> {
   const timestamp = new Date().toISOString();
   const cleanEmail = (data.email || '').trim().toLowerCase();
+  const cleanName = data.name.trim();
+  const cleanPhone = data.phone.trim();
+  const cleanProgram = data.examLevel.trim();
+  const cleanSlot = data.date.trim();
+  const cleanNotes = (data.notes || '').trim();
+
+  // 1. Prepare Supabase record
   const record = {
-    name: data.name.trim(),
-    email: cleanEmail,
-    phone: data.phone.trim(),
-    program: `1-on-1 Counselling: ${data.examLevel}`,
-    attempt: data.date,
-    notes: data.notes || `Preferred Slot: ${data.date}`,
-    status: 'counselling_booking',
+    name: cleanName,
+    email: cleanEmail || null,
+    phone: cleanPhone,
+    program: `1-on-1 Counselling: ${cleanProgram}`,
+    attempt: cleanSlot,
+    notes: cleanNotes ? cleanNotes : `Preferred Slot: ${cleanSlot}`,
+    status: 'booked',
     created_at: timestamp,
   };
 
-  // Always save a local copy as redundancy
   try {
-    const existing = JSON.parse(localStorage.getItem('hk_local_enrollments') || '[]');
-    existing.unshift({ ...record, local_saved_at: timestamp });
-    localStorage.setItem('hk_local_enrollments', JSON.stringify(existing.slice(0, 100)));
-  } catch (err) {
-    console.warn('Local storage save skipped:', err);
-  }
+    // 2. Insert into Supabase table [enrollments] and verify actual DB success
+    const { data: insertedData, error } = await supabase
+      .from('enrollments')
+      .insert([record])
+      .select();
 
-  // Also sync directly to Central Free Slot Bookings Database
-  try {
-    const finalEmail = cleanEmail || `${(data.phone || '').replace(/\D/g, '')}@student.hkcodeofrankers.com`;
-    createFreeSlotBooking({
-      name: data.name,
-      email: finalEmail,
-      phone: data.phone,
-      program: data.examLevel,
-      preferredSlot: data.date,
-      notes: data.notes,
-    });
-  } catch (err) {
-    console.warn('Central free slot sync notice:', err);
-  }
-
-  try {
-    const { error } = await supabase.from('enrollments').insert([record]);
-    if (!error) {
+    if (error || !insertedData || insertedData.length === 0) {
+      console.error('Supabase booking insert failed:', error?.message);
       return {
-        success: true,
-        message: 'Counselling slot saved to Supabase backend.',
-        savedToSupabase: true,
-        savedLocally: true,
+        success: false,
+        message: error?.message || 'Database booking insert failed. Please try again.',
+        savedToSupabase: false,
+        savedLocally: false,
+        error: error?.message,
       };
     }
-  } catch (err) {
-    console.warn('Counselling booking Supabase insert error:', err);
-  }
 
-  return {
-    success: true,
-    message: 'Counselling slot booked successfully.',
-    savedToSupabase: false,
-    savedLocally: true,
-  };
+    const savedRow = insertedData[0];
+    const bookingRecord: FreeSlotBookingRecord = {
+      id: savedRow.id,
+      name: savedRow.name || cleanName,
+      email: savedRow.email || cleanEmail,
+      phone: savedRow.phone || cleanPhone,
+      program: cleanProgram,
+      targetExam: cleanProgram,
+      preferredSlot: cleanSlot,
+      notes: cleanNotes || undefined,
+      status: 'booked',
+      createdAt: savedRow.created_at || timestamp,
+    };
+
+    // Save to local cache as fallback and trigger sync
+    try {
+      const existing = getAllFreeSlotBookings();
+      const filtered = existing.filter((b) => b.id !== bookingRecord.id);
+      filtered.unshift(bookingRecord);
+      saveAllFreeSlotBookings(filtered);
+    } catch (e) {
+      console.warn('Local cache update notice:', e);
+    }
+
+    // 3. Trigger email notification ONLY AFTER DB insert succeeds
+    try {
+      await sendFreeSlotBookingConfirmationEmail({
+        candidateName: bookingRecord.name,
+        candidateEmail: bookingRecord.email,
+        candidatePhone: bookingRecord.phone,
+        program: bookingRecord.program,
+        preferredSlot: bookingRecord.preferredSlot,
+        bookingId: bookingRecord.id,
+        notes: bookingRecord.notes,
+      });
+    } catch (emailErr) {
+      console.warn('Free slot confirmation email dispatch error:', emailErr);
+    }
+
+    return {
+      success: true,
+      message: 'Free guidance slot booked successfully!',
+      savedToSupabase: true,
+      savedLocally: true,
+      booking: bookingRecord,
+    };
+  } catch (err: any) {
+    console.error('Supabase free session booking critical error:', err);
+    return {
+      success: false,
+      message: err?.message || 'Failed to save booking to database. Please check your connection and retry.',
+      savedToSupabase: false,
+      savedLocally: false,
+      error: err?.message || String(err),
+    };
+  }
+}
+
+/**
+ * Fetches all Free Demo Session Bookings directly from Supabase [enrollments] table.
+ * Strictly excludes paid courses, payment verifications, and general inquiries.
+ */
+export async function fetchFreeSlotBookingsFromSupabase(): Promise<FreeSlotBookingRecord[]> {
+  try {
+    const { data, error } = await supabase
+      .from('enrollments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Error fetching free slot bookings from Supabase:', error.message);
+      return getAllFreeSlotBookings();
+    }
+
+    if (!data || !Array.isArray(data)) {
+      return [];
+    }
+
+    // Strictly filter for FREE DEMO SESSION bookings ONLY
+    const freeBookings: FreeSlotBookingRecord[] = data
+      .filter((item) => {
+        // Exclude paid students, UPI payment approvals, or mentorship products
+        const hasPayment =
+          Boolean(item.utr_number) ||
+          item.status === 'pending_verification' ||
+          (item.notes && item.notes.toLowerCase().includes('utr:')) ||
+          (item.amount !== undefined && item.amount !== null && item.amount > 0) ||
+          (item.product_id && item.product_id !== 'free-guidance-call' && !item.product_id.includes('free'));
+
+        if (hasPayment) return false;
+
+        const isFree =
+          item.status === 'counselling_booking' ||
+          item.status === 'booked' ||
+          item.status === 'completed' ||
+          item.status === 'rescheduled' ||
+          item.status === 'free_session' ||
+          (item.program && item.program.toLowerCase().includes('counselling')) ||
+          (item.program && item.program.toLowerCase().includes('free'));
+
+        return isFree;
+      })
+      .map((item) => {
+        const cleanProgram = (item.program || '')
+          .replace(/^1-on-1 Counselling:\s*/i, '')
+          .trim() || 'CS Executive';
+
+        let notes = item.notes || '';
+        if (notes.toLowerCase().startsWith('preferred slot:')) {
+          notes = notes.replace(/^preferred slot:\s*[^\n]*/i, '').trim();
+        }
+
+        let status: FreeSlotStatus = 'booked';
+        if (item.status === 'completed') status = 'completed';
+        else if (item.status === 'rescheduled') status = 'rescheduled';
+        else status = 'booked';
+
+        return {
+          id: item.id,
+          name: item.name || 'Student Candidate',
+          email: item.email || '',
+          phone: item.phone || '',
+          program: cleanProgram,
+          targetExam: cleanProgram,
+          preferredSlot: item.attempt || '1-on-1 Guidance Session',
+          notes: notes || undefined,
+          status,
+          createdAt: item.created_at || new Date().toISOString(),
+        };
+      });
+
+    // Save to local cache as fallback and trigger storage sync
+    saveAllFreeSlotBookings(freeBookings);
+    return freeBookings;
+  } catch (err) {
+    console.error('Failed to fetch free slot bookings from Supabase:', err);
+    return getAllFreeSlotBookings();
+  }
+}
+
+/**
+ * Updates a free slot booking's status directly in the Supabase enrollments table.
+ */
+export async function updateFreeSlotBookingStatusInSupabase(
+  bookingId: string,
+  newStatus: FreeSlotStatus,
+  adminRemarks?: string
+): Promise<boolean> {
+  // 1. Update local cache immediately for fast UI response
+  updateFreeSlotBookingStatus(bookingId, newStatus, adminRemarks);
+
+  // 2. Persist to Supabase enrollments table
+  try {
+    const updatePayload: Record<string, any> = { status: newStatus };
+    if (adminRemarks !== undefined) {
+      updatePayload.notes = adminRemarks;
+    }
+    const { error } = await supabase
+      .from('enrollments')
+      .update(updatePayload)
+      .eq('id', bookingId);
+
+    if (error) {
+      console.warn('Failed to update free slot status in Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error updating free slot in Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes a free slot booking directly from the Supabase enrollments table.
+ */
+export async function deleteFreeSlotBookingFromSupabase(bookingId: string): Promise<boolean> {
+  // 1. Delete from local cache
+  deleteFreeSlotBooking(bookingId);
+
+  // 2. Delete from Supabase enrollments table
+  try {
+    const { error } = await supabase
+      .from('enrollments')
+      .delete()
+      .eq('id', bookingId);
+
+    if (error) {
+      console.warn('Failed to delete free slot from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error deleting free slot from Supabase:', err);
+    return false;
+  }
 }
 
 // ====================================================================

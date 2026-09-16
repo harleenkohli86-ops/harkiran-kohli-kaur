@@ -6,7 +6,7 @@ This document provides the exact, production-verified instructions to activate a
 
 ## 1. Summary of Architecture & Security Enhancements
 
-1. **Automatic Student Registration Notification (to `hkcodeofrankers@gmail.com`)**:
+1. **Automatic Student Registration Notification (to `hk.code.of.rankers@gmail.com`)**:
    - Fires automatically whenever a genuine student creates an account.
    - Includes full student details: Student ID, Name, Email, Phone, Program, Level/Group, Attempt, Registration Date & Time.
    - **Never exposes** password, OTP, tokens, or sensitive credentials.
@@ -85,7 +85,7 @@ If deploying Supabase Edge Functions:
 1. Open an incognito window or log out.
 2. Register a new test student with a valid phone number and email.
 3. Complete the registration.
-4. Verify that `hkcodeofrankers@gmail.com` receives the official notification:
+4. Verify that `hk.code.of.rankers@gmail.com` receives the official notification:
    - Subject: `New Student Registration – HK Code of Rankers`
    - Contains: Student ID, Name, Email, Phone, Program, Level/Group, Attempt, Registration Date & Time.
    - Does NOT contain the student's password or sensitive token.

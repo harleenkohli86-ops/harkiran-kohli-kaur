@@ -1,5 +1,5 @@
 // Supabase Edge Function: handle-registration
-// Formats and sends official New Student Registration notification to hkcodeofrankers@gmail.com
+// Formats and sends official New Student Registration notification to hk.code.of.rankers@gmail.com
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const corsHeaders = {
@@ -103,6 +103,7 @@ Please login to the Admin Portal to review/manage the student.`;
     `;
 
     const sender = Deno.env.get("RESEND_FROM_EMAIL") || "HK Code of Rankers <onboarding@resend.dev>";
+    const recipient = Deno.env.get("ADMIN_NOTIFICATION_EMAIL") || "hk.code.of.rankers@gmail.com";
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -112,7 +113,7 @@ Please login to the Admin Portal to review/manage the student.`;
       },
       body: JSON.stringify({
         from: sender,
-        to: ["hkcodeofrankers@gmail.com"],
+        to: [recipient],
         subject,
         text,
         html,

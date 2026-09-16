@@ -215,6 +215,6 @@ SET name = 'Harkiran Kaur',
 -- Events: INSERT
 -- Type: Supabase Edge Function
 -- Function: handle-registration (or send-email)
--- This sends an automatic email to hkcodeofrankers@gmail.com immediately upon registration!
+-- This sends an automatic email to hk.code.of.rankers@gmail.com immediately upon registration!
 
 

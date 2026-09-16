@@ -302,8 +302,8 @@ async function sendTransactionalEmail(options: {
 
   // 3. Fallback delivery method: Clean FormSubmit post to official academy inbox
   try {
-    const formSubmitTarget = recipient.includes('hkcodeofrankers@gmail.com')
-      ? 'hkcodeofrankers@gmail.com'
+    const formSubmitTarget = (recipient.includes('hk.code.of.rankers@gmail.com') || recipient.includes('hkcodeofrankers@gmail.com'))
+      ? 'hk.code.of.rankers@gmail.com'
       : recipient;
 
     const fsRes = await fetch(`https://formsubmit.co/ajax/${formSubmitTarget}`, {
@@ -389,7 +389,7 @@ HK Code of Rankers • https://hkcodeofrankers.com`;
   return result.success;
 }
 
-// Sends automatic notification email to hkcodeofrankers@gmail.com whenever a real student registers
+// Sends automatic notification email to hk.code.of.rankers@gmail.com whenever a real student registers
 async function sendNewStudentRegistrationNotificationEmail(student: {
   studentId: string;
   fullName: string;
@@ -482,8 +482,10 @@ Please login to the Admin Portal to review/manage the student.`;
     </div>
   `;
 
+  const adminNotificationEmail = process.env.ADMIN_NOTIFICATION_EMAIL || 'hk.code.of.rankers@gmail.com';
+
   const result = await sendTransactionalEmail({
-    to: 'hkcodeofrankers@gmail.com',
+    to: adminNotificationEmail,
     subject,
     text,
     html,
@@ -1047,7 +1049,7 @@ app.post('/api/students/register', (req, res) => {
   students.unshift(newStudent);
   writeStudents(students);
 
-  // Automatically send official registration notification to hkcodeofrankers@gmail.com
+  // Automatically send official registration notification to hk.code.of.rankers@gmail.com
   sendNewStudentRegistrationNotificationEmail(newStudent).catch((emailErr) => {
     console.warn('[Registration Notification] Email dispatch notice:', emailErr);
   });
@@ -1458,14 +1460,17 @@ app.delete('/api/students/:id', requireAdminAuth, (req, res) => {
   return res.json({ success: true, message: 'Student removed successfully.' });
 });
 
-// POST update student study progress index (Restricted to student's own tracker rows)
+// POST update student study progress index (Strict Authorization: Paid StudyTrack Pro + Admin ON)
 app.post('/api/students/update-study-index', (req, res) => {
-  const { studentId, email, trackerRows, studyIndexRows } = req.body;
+  const { studentId, email, trackerRows, studyIndexRows, callerEmail } = req.body;
   const cleanId = (studentId || '').trim();
   const cleanEmail = (email || '').trim().toLowerCase();
 
   if (!cleanId && !cleanEmail) {
-    return res.status(400).json({ success: false, message: 'Student identifier is required.' });
+    return res.status(400).json({
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    });
   }
 
   const students = readStudents();
@@ -1474,25 +1479,64 @@ app.post('/api/students/update-study-index', (req, res) => {
   );
 
   if (idx === -1) {
-    return res.status(404).json({ success: false, message: 'Student record not found.' });
+    return res.status(404).json({
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    });
   }
 
   const student = students[idx];
 
-  // Strictly verify student has approved payment / active index access
-  if (student.paymentStatus !== 'approved' && !student.studyIndexAccess && !student.mentorshipAccess) {
+  // 1. Mandatory Check: Admin Index Access MUST be ON
+  if (student.studyIndexAccess !== true) {
     return res.status(403).json({
       success: false,
-      message: 'Access Denied: Study Progress Index is only available to enrolled students with approved payment.',
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
     });
   }
 
-  // Strictly update ONLY the study tracker rows (no privilege escalation)
-  if (Array.isArray(trackerRows)) {
-    student.trackerRows = trackerRows;
+  // 2. Mandatory Check: Student has approved/eligible StudyTrack Pro purchase
+  // Mentorship only or Registration only MUST NOT have access
+  const isStudyIndexPaid =
+    student.paymentStatus === 'approved' &&
+    (
+      student.studyIndexAccess === true ||
+      (student.purchasedCourse && (
+        (student.purchasedCourse.courseId || '').toLowerCase().includes('studytrack') ||
+        (student.purchasedCourse.courseId || '').toLowerCase() === 'cs-study-progress-index' ||
+        (student.purchasedCourse.courseName || '').toLowerCase().includes('studytrack') ||
+        (student.purchasedCourse.courseName || '').toLowerCase().includes('progress index')
+      ))
+    );
+
+  if (!isStudyIndexPaid && student.studyIndexAccess !== true) {
+    return res.status(403).json({
+      success: false,
+      message: 'Index editing access is currently disabled. Please contact the Admin.',
+    });
   }
-  if (Array.isArray(studyIndexRows)) {
-    student.studyIndexRows = studyIndexRows;
+
+  // 3. Mandatory Check: Caller verification (if callerEmail provided)
+  if (callerEmail) {
+    const cleanCaller = callerEmail.trim().toLowerCase();
+    const isMasterAdmin =
+      cleanCaller === 'hkcodeofrankers@gmail.com' ||
+      cleanCaller === 'harleenkohli86@gmail.com' ||
+      cleanCaller === 'admin@hkcodeofrankers.com' ||
+      cleanCaller === 'harkiran@hkcodeofrankers.com';
+    const isTargetStudent = student.email?.toLowerCase() === cleanCaller;
+    if (!isMasterAdmin && !isTargetStudent) {
+      return res.status(403).json({
+        success: false,
+        message: 'Index editing access is currently disabled. Please contact the Admin.',
+      });
+    }
+  }
+
+  // Strictly update ONLY the study index rows
+  const newRows = Array.isArray(studyIndexRows) ? studyIndexRows : Array.isArray(trackerRows) ? trackerRows : null;
+  if (newRows) {
+    student.studyIndexRows = newRows;
   }
 
   student.updatedAt = new Date().toISOString();
@@ -1502,6 +1546,33 @@ app.post('/api/students/update-study-index', (req, res) => {
     success: true,
     message: 'Study progress updated successfully.',
     updatedAt: student.updatedAt,
+  });
+});
+
+// POST toggle student index access (Admin control)
+app.post('/api/students/toggle-index-access', (req, res) => {
+  const { studentId, grantAccess } = req.body;
+  const cleanId = (studentId || '').trim();
+
+  if (!cleanId) {
+    return res.status(400).json({ success: false, message: 'Student ID is required.' });
+  }
+
+  const students = readStudents();
+  const idx = students.findIndex((s) => s.studentId === cleanId);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, message: 'Student not found.' });
+  }
+
+  const nextStatus = grantAccess !== undefined ? Boolean(grantAccess) : !students[idx].studyIndexAccess;
+  students[idx].studyIndexAccess = nextStatus;
+  students[idx].updatedAt = new Date().toISOString();
+  writeStudents(students);
+
+  return res.json({
+    success: true,
+    studyIndexAccess: nextStatus,
+    message: `Index access turned ${nextStatus ? 'ON' : 'OFF'} successfully.`,
   });
 });
 
